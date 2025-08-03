@@ -277,10 +277,6 @@ func (ncm *NetemConvergenceMonitor) cleanupOldEvents() {
 	currentTime := time.Now().UnixMilli()
 	cutoffTime := currentTime - 300000 // 5分钟前的事件
 
-	// 使用写锁保护 recentQdiscEvents
-	ncm.sessionMu.Lock()
-	defer ncm.sessionMu.Unlock()
-
 	// 清理过期的qdisc事件
 	validEvents := make([]QdiscEvent, 0, len(ncm.recentQdiscEvents))
 	for _, event := range ncm.recentQdiscEvents {
@@ -389,11 +385,6 @@ func (ncm *NetemConvergenceMonitor) isNetemRelatedEvent(qdiscInfo map[string]int
 	// 删除事件可能没有kind信息，检查最近是否有同接口的netem事件
 	if eventType == "QDISC_DEL" {
 		interfaceName := qdiscInfo["interface"].(string)
-
-		// 使用读锁保护 recentQdiscEvents 的访问
-		ncm.sessionMu.RLock()
-		defer ncm.sessionMu.RUnlock()
-
 		for i := len(ncm.recentQdiscEvents) - 1; i >= 0; i-- {
 			recentEvent := ncm.recentQdiscEvents[i]
 			if recentInterface, ok := recentEvent.Info["interface"].(string); ok &&
@@ -424,7 +415,7 @@ func (ncm *NetemConvergenceMonitor) handleTriggerEvent(timestamp int64, eventTyp
 	ncm.currentSession = NewConvergenceSession(ncm.sessionCounter, timestamp, triggerInfo)
 	ncm.state = "MONITORING"
 
-	// 更新统计 - 使用原子操作
+	// 更新统计
 	if triggerSource == "netem" {
 		atomic.AddInt64(&ncm.totalNetemTriggers, 1)
 	} else {
@@ -464,8 +455,6 @@ func (ncm *NetemConvergenceMonitor) handleQdiscEventFromTC(obj *tc.Object, event
 	currentTime := time.Now().UnixMilli()
 	qdiscInfo := ncm.parseQdiscInfoFromTC(obj)
 
-	// 使用写锁保护 recentQdiscEvents 的修改
-	ncm.sessionMu.Lock()
 	// 缓存qdisc事件
 	event := QdiscEvent{
 		Timestamp: currentTime,
@@ -476,7 +465,6 @@ func (ncm *NetemConvergenceMonitor) handleQdiscEventFromTC(obj *tc.Object, event
 	if len(ncm.recentQdiscEvents) > 20 {
 		ncm.recentQdiscEvents = ncm.recentQdiscEvents[1:]
 	}
-	ncm.sessionMu.Unlock()
 
 	// 检查是否为netem相关事件
 	if ncm.isNetemRelatedEvent(qdiscInfo, eventType) {
@@ -492,7 +480,7 @@ func (ncm *NetemConvergenceMonitor) handleQdiscEventFromTC(obj *tc.Object, event
 		}
 		logStructuredDataAsync(ncm.logger, netemEventData)
 
-		// 根据当前状态决定处理方式 - 优化锁粒度
+		// 根据当前状态决定处理方式
 		ncm.sessionMu.RLock()
 		state := ncm.state
 		currentSession := ncm.currentSession
@@ -502,10 +490,13 @@ func (ncm *NetemConvergenceMonitor) handleQdiscEventFromTC(obj *tc.Object, event
 		if isMonitoring {
 			// 当前有活跃会话，将netem事件作为普通路由事件处理
 			currentSession.AddRouteEvent(currentTime, fmt.Sprintf("Netem事件(%s)", eventType), qdiscInfo)
-
-			// 使用原子操作更新计数器
-			totalRouteEvents := atomic.AddInt64(&ncm.totalRouteEvents, 1)
-
+			
+			// 更新计数器需要获取锁，但范围很小
+			ncm.sessionMu.Lock()
+			ncm.totalRouteEvents++
+			totalRouteEvents := ncm.totalRouteEvents
+			ncm.sessionMu.Unlock()
+			
 			offset := currentTime - currentSession.NetemEventTime
 			sessionID := currentSession.SessionID
 			eventCount := currentSession.GetRouteEventCount()
@@ -536,8 +527,6 @@ func (ncm *NetemConvergenceMonitor) handleQdiscEvent(qdisc netlink.Qdisc, eventT
 	currentTime := time.Now().UnixMilli()
 	qdiscInfo := ncm.parseQdiscInfo(qdisc)
 
-	// 使用写锁保护 recentQdiscEvents 的修改
-	ncm.sessionMu.Lock()
 	// 缓存qdisc事件
 	event := QdiscEvent{
 		Timestamp: currentTime,
@@ -548,7 +537,6 @@ func (ncm *NetemConvergenceMonitor) handleQdiscEvent(qdisc netlink.Qdisc, eventT
 	if len(ncm.recentQdiscEvents) > 20 {
 		ncm.recentQdiscEvents = ncm.recentQdiscEvents[1:]
 	}
-	ncm.sessionMu.Unlock()
 
 	// 检查是否为netem相关事件
 	if ncm.isNetemRelatedEvent(qdiscInfo, eventType) {
@@ -564,7 +552,7 @@ func (ncm *NetemConvergenceMonitor) handleQdiscEvent(qdisc netlink.Qdisc, eventT
 		}
 		logStructuredDataAsync(ncm.logger, netemEventData)
 
-		// 根据当前状态决定处理方式 - 优化锁粒度
+		// 根据当前状态决定处理方式
 		ncm.sessionMu.RLock()
 		state := ncm.state
 		currentSession := ncm.currentSession
@@ -574,10 +562,13 @@ func (ncm *NetemConvergenceMonitor) handleQdiscEvent(qdisc netlink.Qdisc, eventT
 		if isMonitoring {
 			// 当前有活跃会话，将netem事件作为普通路由事件处理
 			currentSession.AddRouteEvent(currentTime, fmt.Sprintf("Netem事件(%s)", eventType), qdiscInfo)
-
-			// 使用原子操作更新计数器
-			totalRouteEvents := atomic.AddInt64(&ncm.totalRouteEvents, 1)
-
+			
+			// 更新计数器需要获取锁，但范围很小
+			ncm.sessionMu.Lock()
+			ncm.totalRouteEvents++
+			totalRouteEvents := ncm.totalRouteEvents
+			ncm.sessionMu.Unlock()
+			
 			offset := currentTime - currentSession.NetemEventTime
 			sessionID := currentSession.SessionID
 			eventCount := currentSession.GetRouteEventCount()
@@ -603,7 +594,7 @@ func (ncm *NetemConvergenceMonitor) handleQdiscEvent(qdisc netlink.Qdisc, eventT
 	}
 }
 
-// handleRouteEvent 处理路由事件 - 优化锁粒度
+// handleRouteEvent 处理路由事件
 func (ncm *NetemConvergenceMonitor) handleRouteEvent(timestamp int64, eventType string, routeInfo map[string]interface{}) {
 	// 检查是否应该作为触发事件 - 使用读锁快速检查状态
 	ncm.sessionMu.RLock()
@@ -660,11 +651,15 @@ func (ncm *NetemConvergenceMonitor) handleRouteEvent(timestamp int64, eventType 
 
 	// 添加路由事件到会话中
 	currentSession.AddRouteEvent(timestamp, eventType, routeInfo)
-
-	// 使用原子操作更新统计信息
-	totalRouteEvents := atomic.AddInt64(&ncm.totalRouteEvents, 1)
+	
+	// 更新统计信息 - 短暂的写锁
+	ncm.sessionMu.Lock()
+	ncm.totalRouteEvents++
+	totalRouteEvents := ncm.totalRouteEvents
 	offset := timestamp - currentSession.NetemEventTime
 	sessionID := currentSession.SessionID
+	ncm.sessionMu.Unlock()
+	
 	eventCount := currentSession.GetRouteEventCount()
 
 	// 记录路由事件的结构化日志
@@ -684,9 +679,9 @@ func (ncm *NetemConvergenceMonitor) handleRouteEvent(timestamp int64, eventType 
 	logStructuredDataAsync(ncm.logger, routeEventData)
 }
 
-// convergenceChecker 后台收敛检查任务 - 优化锁粒度
+// convergenceChecker 后台收敛检查任务
 func (ncm *NetemConvergenceMonitor) convergenceChecker(ctx context.Context) {
-
+	
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
@@ -699,8 +694,8 @@ func (ncm *NetemConvergenceMonitor) convergenceChecker(ctx context.Context) {
 			ncm.sessionMu.RLock()
 			currentSession := ncm.currentSession
 			state := ncm.state
-			shouldCheck := state == "MONITORING" &&
-				currentSession != nil &&
+			shouldCheck := state == "MONITORING" && 
+				currentSession != nil && 
 				!currentSession.IsConverged
 			ncm.sessionMu.RUnlock()
 
@@ -712,10 +707,10 @@ func (ncm *NetemConvergenceMonitor) convergenceChecker(ctx context.Context) {
 			if currentSession.CheckConvergence(ncm.convergenceThresholdMs) {
 				// 收敛完成时才获取写锁来更新状态
 				ncm.sessionMu.Lock()
-				// 再次检查，防止竞态条件 - 注意：CheckConvergence已经修改了IsConverged状态
+				// 再次检查，防止竞态条件
 				if ncm.state == "MONITORING" &&
 					ncm.currentSession == currentSession &&
-					ncm.currentSession.IsConverged { // 修复：现在应该检查是否已收敛
+					!ncm.currentSession.IsConverged {
 
 					fmt.Printf("✅ 会话 #%d 收敛完成\n", ncm.currentSession.SessionID)
 					ncm.finishCurrentSession()
@@ -903,11 +898,6 @@ func (ncm *NetemConvergenceMonitor) printStatistics() {
 	totalTime := currentTime - ncm.monitoringStartTime
 	utcNow := time.Now().UTC()
 
-	// 使用原子操作读取计数器
-	totalRouteEvents := atomic.LoadInt64(&ncm.totalRouteEvents)
-	totalNetemTriggers := atomic.LoadInt64(&ncm.totalNetemTriggers)
-	totalRouteTriggers := atomic.LoadInt64(&ncm.totalRouteTriggers)
-
 	// 计算统计数据
 	var convergenceTimes []int64
 	var routeCounts []int
@@ -979,10 +969,10 @@ func (ncm *NetemConvergenceMonitor) printStatistics() {
 		"total_listen_duration_ms":      totalTime,
 		"total_listen_duration_seconds": float64(totalTime) / 1000.0,
 		"convergence_threshold_ms":      ncm.convergenceThresholdMs,
-		"total_trigger_events":          totalNetemTriggers + totalRouteTriggers,
-		"netem_events_count":            totalNetemTriggers,
-		"route_events_in_trigger":       totalRouteTriggers,
-		"total_route_events":            totalRouteEvents,
+		"total_trigger_events":          ncm.totalNetemTriggers + ncm.totalRouteTriggers,
+		"netem_events_count":            ncm.totalNetemTriggers,
+		"route_events_in_trigger":       ncm.totalRouteTriggers,
+		"total_route_events":            ncm.totalRouteEvents,
 		"completed_sessions_count":      len(ncm.completedSessions),
 		"fast_convergence_count":        fastConvergence,
 		"medium_convergence_count":      mediumConvergence,
@@ -1058,9 +1048,9 @@ func (ncm *NetemConvergenceMonitor) printStatistics() {
 	fmt.Printf("   路由器: %s\n", ncm.routerName)
 	fmt.Printf("   监听时长: %.1f秒\n", float64(totalTime)/1000.0)
 
-	totalTriggers := totalNetemTriggers + totalRouteTriggers
+	totalTriggers := ncm.totalNetemTriggers + ncm.totalRouteTriggers
 	fmt.Printf("   触发事件: %d, 路由事件: %d, 完成会话: %d\n",
-		totalTriggers, totalRouteEvents, len(ncm.completedSessions))
+		totalTriggers, ncm.totalRouteEvents, len(ncm.completedSessions))
 
 	// 收敛会话分析
 	if len(ncm.completedSessions) > 0 && len(convergenceTimes) > 0 {
@@ -1088,11 +1078,11 @@ func main() {
 	)
 
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, `异步路由收敛时间监控工具 - 简化触发模式 (性能优化版)
+		fmt.Fprintf(os.Stderr, `异步路由收敛时间监控工具 - 简化触发模式
 
 使用说明:
   触发策略:
-    1. 启动监控工具: go run main_optimized.go --threshold 3000 --router-name router1
+    1. 启动监控工具: go run nem.go --threshold 3000 --router-name router1
     2. 触发事件策略:
        - 在IDLE状态: 任何事件(Netem或路由变更)都会立即触发新的收敛测量会话
        - 在监控状态: 新事件会被当作路由事件添加到当前会话中
@@ -1104,19 +1094,13 @@ func main() {
          * netem删除: sudo tc qdisc del dev lo root netem
     3. 观察路由收敛过程和时间测量
 
-  性能优化特性:
-    - 细粒度锁控制，减少锁竞争
-    - 原子操作用于计数器，提高并发性能
-    - 优化的状态检查逻辑，减少不必要的锁获取
-    - 分离读写锁，提高读操作性能
-
   使用Ctrl+C停止监控并查看统计报告
   结构化日志将以JSON格式保存到指定路径或默认路径
 
 示例:
-  go run main_optimized.go --threshold 3000 --router-name spine1
-  go run main_optimized.go --threshold 5000 --router-name leaf2 --log-path /tmp/my_convergence.json
-  go run main_optimized.go --log-path ./logs/convergence_20240803_143000.json
+  go run nem.go --threshold 3000 --router-name spine1
+  go run nem.go --threshold 5000 --router-name leaf2 --log-path /tmp/my_convergence.json
+  go run nem.go --log-path ./logs/convergence_20240803_143000.json
 
 选项:
 `)
@@ -1133,12 +1117,12 @@ func main() {
 
 	// 先设置基本的logger用于启动信息
 	_, logFile := setupAsyncLogging(*logPath)
-
+	
 	// 启动日志处理器
 	startLogProcessor()
 
 	currentTime := time.Now().Format("2006-01-02 15:04:05")
-	fmt.Printf("异步路由收敛监控工具启动 (性能优化版) - %s\n", currentTime)
+	fmt.Printf("异步路由收敛监控工具启动 (简化触发模式) - %s\n", currentTime)
 	fmt.Printf("参数: 收敛阈值=%dms\n", *threshold)
 
 	routerNameStr := *routerName
@@ -1147,7 +1131,6 @@ func main() {
 	}
 	fmt.Printf("路由器名称: %s\n", routerNameStr)
 	fmt.Println("触发策略: 仅在IDLE状态时触发新会话，监控中作为路由事件")
-	fmt.Println("性能优化: 细粒度锁 + 原子操作 + 状态缓存")
 
 	logPathStr := *logPath
 	if logPathStr == "" {

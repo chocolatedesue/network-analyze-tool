@@ -1,0 +1,7 @@
+{
+    "go.goroot": "/home/ccds/.local/share/mise/installs/go/1.24.5",
+    "go.alternateTools": {
+        "go": "/home/ccds/.local/share/mise/shims/go",
+        "gopls": "/home/ccds/.local/share/mise/shims/gopls"
+    }
+}
