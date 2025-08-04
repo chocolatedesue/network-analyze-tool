@@ -3,5 +3,6 @@
     "go.alternateTools": {
         "go": "/home/ccds/.local/share/mise/shims/go",
         "gopls": "/home/ccds/.local/share/mise/shims/gopls"
-    }
+    },
+    "cmake.sourceDirectory": "/home/ccds/work/network-analyze-tool/converge_analyze_cpp"
 }
