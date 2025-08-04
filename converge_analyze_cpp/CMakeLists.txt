@@ -142,8 +142,18 @@ set(HEADERS
     netlink_monitor.h
 )
 
-# 创建可执行文件
+# 创建主可执行文件
 add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})
+
+# 创建测试可执行文件
+set(TEST_SOURCES
+    test_unified_monitor.cpp
+    convergence_monitor.cpp
+    logger.cpp
+    netlink_monitor.cpp
+)
+
+add_executable(test_unified_monitor ${TEST_SOURCES} ${HEADERS})
 
 # 静态链接特殊处理
 if(CMAKE_BUILD_TYPE STREQUAL "Static")
@@ -160,6 +170,12 @@ endif()
 
 # 链接库
 target_link_libraries(${PROJECT_NAME}
+    Threads::Threads
+    ${UUID_LIBRARIES}
+)
+
+# 为测试程序链接库
+target_link_libraries(test_unified_monitor
     Threads::Threads
     ${UUID_LIBRARIES}
 )

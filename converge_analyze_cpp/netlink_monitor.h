@@ -7,6 +7,7 @@
 #include <vector>
 #include <unordered_map>
 #include <string>
+#include <sys/epoll.h>
 
 // Linux netlink headers
 #include <linux/netlink.h>
@@ -24,6 +25,7 @@ enum class NetlinkMessageType {
     ROUTE_DEL,
     QDISC_ADD,
     QDISC_DEL,
+    QDISC_GET,
     QDISC_CHANGE,
     UNKNOWN
 };
@@ -32,33 +34,37 @@ enum class NetlinkMessageType {
 using RouteEventCallback = std::function<void(const void*, const std::string&)>;
 using QdiscEventCallback = std::function<void(const void*, const std::string&)>;
 
+// 统一的netlink事件回调函数类型
+using NetlinkEventCallback = std::function<void(const void*, const std::string&, NetlinkMessageType)>;
+
 // Netlink监控器类
 class NetlinkMonitor {
 private:
-    // 套接字文件描述符
-    int route_socket_fd_;
-    int qdisc_socket_fd_;
-    
+    // 统一的套接字文件描述符
+    int netlink_socket_fd_;
+    int epoll_fd_;
+
+    // 用于优雅关闭的管道
+    int shutdown_pipe_[2];
+
     // 线程管理
     std::atomic<bool> running_{false};
-    std::thread route_monitor_thread_;
-    std::thread qdisc_monitor_thread_;
-    
+    std::thread monitor_thread_;
+
     // 事件回调
     RouteEventCallback route_callback_;
     QdiscEventCallback qdisc_callback_;
-    
+    NetlinkEventCallback unified_callback_;
+
     // 缓冲区大小
     static constexpr size_t NETLINK_BUFFER_SIZE = 8192;
-    
+    static constexpr int MAX_EPOLL_EVENTS = 10;
+
     // 内部方法
-    int create_netlink_socket(int protocol, uint32_t groups);
-    void route_monitor_loop();
-    void qdisc_monitor_loop();
+    int create_unified_netlink_socket();
+    void unified_monitor_loop();
     
-    void process_netlink_message(const struct nlmsghdr* nlh, 
-                                NetlinkMessageType& msg_type, 
-                                void** data);
+    void process_netlink_message(const struct nlmsghdr* nlh);
     
     NetlinkMessageType get_message_type(const struct nlmsghdr* nlh);
     std::string message_type_to_string(NetlinkMessageType type);
@@ -85,11 +91,13 @@ public:
     // 设置事件回调
     void set_route_callback(RouteEventCallback callback);
     void set_qdisc_callback(QdiscEventCallback callback);
+    void set_unified_callback(NetlinkEventCallback callback);
     
     // 启动和停止监控
     bool start_monitoring();
     void stop_monitoring();
-    
+    void request_shutdown(); // 请求优雅关闭
+
     // 检查是否正在运行
     bool is_running() const { return running_.load(); }
 };

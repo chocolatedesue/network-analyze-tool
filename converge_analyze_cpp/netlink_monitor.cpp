@@ -9,6 +9,8 @@
 #include <fcntl.h>
 #include <thread>
 #include <chrono>
+#include <sys/epoll.h>
+#include <unistd.h>
 
 // NetlinkSocket 实现
 NetlinkSocket::NetlinkSocket(int protocol, uint32_t groups) : fd_(-1) {
@@ -60,7 +62,9 @@ ssize_t NetlinkSocket::send_message(const void* message, size_t message_size) {
 }
 
 // NetlinkMonitor 实现
-NetlinkMonitor::NetlinkMonitor() : route_socket_fd_(-1), qdisc_socket_fd_(-1) {
+NetlinkMonitor::NetlinkMonitor() : netlink_socket_fd_(-1), epoll_fd_(-1) {
+    shutdown_pipe_[0] = -1;
+    shutdown_pipe_[1] = -1;
 }
 
 NetlinkMonitor::~NetlinkMonitor() {
@@ -75,155 +79,241 @@ void NetlinkMonitor::set_qdisc_callback(QdiscEventCallback callback) {
     qdisc_callback_ = std::move(callback);
 }
 
+void NetlinkMonitor::set_unified_callback(NetlinkEventCallback callback) {
+    unified_callback_ = std::move(callback);
+}
+
 bool NetlinkMonitor::start_monitoring() {
     if (running_.load()) {
         return true;
     }
-    
+
     try {
-        // 创建路由监控套接字
-        route_socket_fd_ = create_netlink_socket(NETLINK_ROUTE, RTMGRP_IPV4_ROUTE | RTMGRP_IPV6_ROUTE);
-        if (route_socket_fd_ < 0) {
-            std::cerr << "Failed to create route netlink socket\n";
+        // 创建统一的netlink套接字
+        netlink_socket_fd_ = create_unified_netlink_socket();
+        if (netlink_socket_fd_ < 0) {
+            std::cerr << "Failed to create unified netlink socket\n";
             return false;
         }
-        
-        // 创建QDisc监控套接字
-        qdisc_socket_fd_ = create_netlink_socket(NETLINK_ROUTE, RTMGRP_TC);
-        if (qdisc_socket_fd_ < 0) {
-            std::cerr << "Failed to create qdisc netlink socket\n";
-            close(route_socket_fd_);
-            route_socket_fd_ = -1;
+
+        // 创建用于优雅关闭的管道
+        if (pipe2(shutdown_pipe_, O_CLOEXEC | O_NONBLOCK) < 0) {
+            std::cerr << "Failed to create shutdown pipe\n";
+            close(netlink_socket_fd_);
+            netlink_socket_fd_ = -1;
             return false;
         }
-        
+
+        // 创建epoll实例
+        epoll_fd_ = epoll_create1(EPOLL_CLOEXEC);
+        if (epoll_fd_ < 0) {
+            std::cerr << "Failed to create epoll instance\n";
+            close(netlink_socket_fd_);
+            close(shutdown_pipe_[0]);
+            close(shutdown_pipe_[1]);
+            netlink_socket_fd_ = -1;
+            shutdown_pipe_[0] = shutdown_pipe_[1] = -1;
+            return false;
+        }
+
+        // 将netlink套接字添加到epoll
+        struct epoll_event ev;
+        ev.events = EPOLLIN;
+        ev.data.fd = netlink_socket_fd_;
+        if (epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, netlink_socket_fd_, &ev) < 0) {
+            std::cerr << "Failed to add netlink socket to epoll\n";
+            close(epoll_fd_);
+            close(netlink_socket_fd_);
+            close(shutdown_pipe_[0]);
+            close(shutdown_pipe_[1]);
+            epoll_fd_ = -1;
+            netlink_socket_fd_ = -1;
+            shutdown_pipe_[0] = shutdown_pipe_[1] = -1;
+            return false;
+        }
+
+        // 将关闭管道的读端添加到epoll
+        ev.events = EPOLLIN;
+        ev.data.fd = shutdown_pipe_[0];
+        if (epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, shutdown_pipe_[0], &ev) < 0) {
+            std::cerr << "Failed to add shutdown pipe to epoll\n";
+            close(epoll_fd_);
+            close(netlink_socket_fd_);
+            close(shutdown_pipe_[0]);
+            close(shutdown_pipe_[1]);
+            epoll_fd_ = -1;
+            netlink_socket_fd_ = -1;
+            shutdown_pipe_[0] = shutdown_pipe_[1] = -1;
+            return false;
+        }
+
         running_.store(true);
-        
-        // 启动监控线程
-        route_monitor_thread_ = std::thread(&NetlinkMonitor::route_monitor_loop, this);
-        qdisc_monitor_thread_ = std::thread(&NetlinkMonitor::qdisc_monitor_loop, this);
-        
+
+        // 启动统一监控线程
+        monitor_thread_ = std::thread(&NetlinkMonitor::unified_monitor_loop, this);
+
         return true;
-        
+
     } catch (const std::exception& e) {
         std::cerr << "Failed to start netlink monitoring: " << e.what() << "\n";
         return false;
     }
 }
 
-void NetlinkMonitor::stop_monitoring() {
+void NetlinkMonitor::request_shutdown() {
     if (!running_.load()) {
         return;
     }
-    
+
     running_.store(false);
-    
-    // 关闭套接字以中断阻塞的recv调用
-    if (route_socket_fd_ >= 0) {
-        close(route_socket_fd_);
-        route_socket_fd_ = -1;
-    }
-    
-    if (qdisc_socket_fd_ >= 0) {
-        close(qdisc_socket_fd_);
-        qdisc_socket_fd_ = -1;
-    }
-    
-    // 等待线程结束
-    if (route_monitor_thread_.joinable()) {
-        route_monitor_thread_.join();
-    }
-    
-    if (qdisc_monitor_thread_.joinable()) {
-        qdisc_monitor_thread_.join();
+
+    // 向关闭管道写入数据以唤醒epoll_wait
+    if (shutdown_pipe_[1] >= 0) {
+        char dummy = 1;
+        write(shutdown_pipe_[1], &dummy, 1);
     }
 }
 
-int NetlinkMonitor::create_netlink_socket(int protocol, uint32_t groups) {
-    int fd = socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, protocol);
+void NetlinkMonitor::stop_monitoring() {
+    // 使用原子操作避免重复调用
+    bool expected = true;
+    if (!running_.compare_exchange_strong(expected, false)) {
+        return; // 已经停止或正在停止
+    }
+
+    // 向关闭管道写入数据以唤醒epoll_wait
+    if (shutdown_pipe_[1] >= 0) {
+        char dummy = 1;
+        write(shutdown_pipe_[1], &dummy, 1);
+    }
+
+    // 等待线程结束
+    if (monitor_thread_.joinable()) {
+        monitor_thread_.join();
+    }
+
+    // 关闭所有文件描述符
+    if (netlink_socket_fd_ >= 0) {
+        close(netlink_socket_fd_);
+        netlink_socket_fd_ = -1;
+    }
+
+    if (epoll_fd_ >= 0) {
+        close(epoll_fd_);
+        epoll_fd_ = -1;
+    }
+
+    if (shutdown_pipe_[0] >= 0) {
+        close(shutdown_pipe_[0]);
+        shutdown_pipe_[0] = -1;
+    }
+
+    if (shutdown_pipe_[1] >= 0) {
+        close(shutdown_pipe_[1]);
+        shutdown_pipe_[1] = -1;
+    }
+}
+
+int NetlinkMonitor::create_unified_netlink_socket() {
+    int fd = socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, NETLINK_ROUTE);
     if (fd < 0) {
         return -1;
     }
-    
+
     struct sockaddr_nl addr;
     memset(&addr, 0, sizeof(addr));
     addr.nl_family = AF_NETLINK;
-    addr.nl_groups = groups;
+    // 同时监听路由和TC事件
+    addr.nl_groups = RTMGRP_IPV4_ROUTE | RTMGRP_IPV6_ROUTE | RTMGRP_TC;
     addr.nl_pid = 0;
-    
+
     if (bind(fd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) < 0) {
         close(fd);
         return -1;
     }
-    
+
     return fd;
 }
 
-void NetlinkMonitor::route_monitor_loop() {
+void NetlinkMonitor::unified_monitor_loop() {
     char buffer[NETLINK_BUFFER_SIZE];
-
-    // 设置套接字为非阻塞模式
-    int flags = fcntl(route_socket_fd_, F_GETFL, 0);
-    fcntl(route_socket_fd_, F_SETFL, flags | O_NONBLOCK);
+    struct epoll_event events[MAX_EPOLL_EVENTS];
 
     while (running_.load()) {
-        ssize_t len = recv(route_socket_fd_, buffer, sizeof(buffer), 0);
-        if (len < 0) {
-            if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK) {
-                // 非阻塞模式下没有数据，短暂休眠后继续
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                continue;
+        // 使用epoll等待事件，超时时间1000ms
+        int nfds = epoll_wait(epoll_fd_, events, MAX_EPOLL_EVENTS, 1000);
+
+        if (nfds < 0) {
+            if (errno == EINTR) {
+                // 被信号中断，检查是否需要退出
+                if (!running_.load()) {
+                    break;
+                }
+                continue; // 继续等待
             }
             if (running_.load()) {
-                std::cerr << "Route netlink recv error: " << strerror(errno) << "\n";
+                std::cerr << "Epoll wait error: " << strerror(errno) << "\n";
             }
             break;
         }
 
-        if (len == 0) {
-            break;
+        if (nfds == 0) {
+            // 超时，继续循环检查running状态
+            continue;
         }
 
-        // 处理netlink消息
-        struct nlmsghdr* nlh = reinterpret_cast<struct nlmsghdr*>(buffer);
-        while (NLMSG_OK(nlh, len)) {
-            handle_route_message(nlh);
-            nlh = NLMSG_NEXT(nlh, len);
+        // 处理所有就绪的事件
+        for (int i = 0; i < nfds; ++i) {
+            if (events[i].data.fd == netlink_socket_fd_) {
+                // 读取netlink消息
+                ssize_t len = recv(netlink_socket_fd_, buffer, sizeof(buffer), 0);
+                if (len < 0) {
+                    if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK) {
+                        continue;
+                    }
+                    if (running_.load()) {
+                        std::cerr << "Netlink recv error: " << strerror(errno) << "\n";
+                    }
+                    break;
+                }
+
+                if (len == 0) {
+                    break;
+                }
+
+                // 处理netlink消息
+                struct nlmsghdr* nlh = reinterpret_cast<struct nlmsghdr*>(buffer);
+                while (NLMSG_OK(nlh, len)) {
+                    process_netlink_message(nlh);
+                    nlh = NLMSG_NEXT(nlh, len);
+                }
+            } else if (events[i].data.fd == shutdown_pipe_[0]) {
+                // 收到关闭信号
+                char dummy;
+                read(shutdown_pipe_[0], &dummy, 1); // 清空管道
+                break; // 退出循环
+            }
         }
     }
 }
 
-void NetlinkMonitor::qdisc_monitor_loop() {
-    char buffer[NETLINK_BUFFER_SIZE];
+void NetlinkMonitor::process_netlink_message(const struct nlmsghdr* nlh) {
+    NetlinkMessageType msg_type = get_message_type(nlh);
 
-    // 设置套接字为非阻塞模式
-    int flags = fcntl(qdisc_socket_fd_, F_GETFL, 0);
-    fcntl(qdisc_socket_fd_, F_SETFL, flags | O_NONBLOCK);
+    // 根据消息类型调用相应的处理函数
+    if (msg_type == NetlinkMessageType::ROUTE_ADD ||
+        msg_type == NetlinkMessageType::ROUTE_DEL) {
+        handle_route_message(nlh);
+    } else if (msg_type == NetlinkMessageType::QDISC_ADD ||
+               msg_type == NetlinkMessageType::QDISC_DEL ||
+               msg_type == NetlinkMessageType::QDISC_GET ||
+               msg_type == NetlinkMessageType::QDISC_CHANGE) {
+        handle_qdisc_message(nlh);
+    }
 
-    while (running_.load()) {
-        ssize_t len = recv(qdisc_socket_fd_, buffer, sizeof(buffer), 0);
-        if (len < 0) {
-            if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK) {
-                // 非阻塞模式下没有数据，短暂休眠后继续
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                continue;
-            }
-            if (running_.load()) {
-                std::cerr << "QDisc netlink recv error: " << strerror(errno) << "\n";
-            }
-            break;
-        }
-
-        if (len == 0) {
-            break;
-        }
-
-        // 处理netlink消息
-        struct nlmsghdr* nlh = reinterpret_cast<struct nlmsghdr*>(buffer);
-        while (NLMSG_OK(nlh, len)) {
-            handle_qdisc_message(nlh);
-            nlh = NLMSG_NEXT(nlh, len);
-        }
+    // 如果设置了统一回调，也调用它
+    if (unified_callback_) {
+        unified_callback_(nlh, message_type_to_string(msg_type), msg_type);
     }
 }
 
@@ -238,7 +328,7 @@ NetlinkMessageType NetlinkMonitor::get_message_type(const struct nlmsghdr* nlh) 
         case RTM_DELQDISC:
             return NetlinkMessageType::QDISC_DEL;
         case RTM_GETQDISC:
-            return NetlinkMessageType::QDISC_CHANGE;
+            return NetlinkMessageType::QDISC_GET;
         default:
             return NetlinkMessageType::UNKNOWN;
     }
@@ -254,6 +344,8 @@ std::string NetlinkMonitor::message_type_to_string(NetlinkMessageType type) {
             return "QDISC_ADD";
         case NetlinkMessageType::QDISC_DEL:
             return "QDISC_DEL";
+        case NetlinkMessageType::QDISC_GET:
+            return "QDISC_GET";
         case NetlinkMessageType::QDISC_CHANGE:
             return "QDISC_CHANGE";
         default:
@@ -275,14 +367,31 @@ void NetlinkMonitor::handle_route_message(const struct nlmsghdr* nlh) {
 
 void NetlinkMonitor::handle_qdisc_message(const struct nlmsghdr* nlh) {
     NetlinkMessageType msg_type = get_message_type(nlh);
-    
-    if (msg_type == NetlinkMessageType::QDISC_ADD || 
-        msg_type == NetlinkMessageType::QDISC_DEL ||
-        msg_type == NetlinkMessageType::QDISC_CHANGE) {
-        
-        if (qdisc_callback_) {
-            qdisc_callback_(nlh, message_type_to_string(msg_type));
-        }
+
+    // 只处理特定的 qdisc 消息类型
+    if (msg_type != NetlinkMessageType::QDISC_ADD &&
+        msg_type != NetlinkMessageType::QDISC_DEL &&
+        msg_type != NetlinkMessageType::QDISC_GET) {
+        return; // 忽略其他类型的消息
+    }
+
+    // 解析 qdisc 信息以检查类型
+    const struct tcmsg* tcm = static_cast<const struct tcmsg*>(NLMSG_DATA(nlh));
+    int attrlen = nlh->nlmsg_len - NLMSG_LENGTH(sizeof(*tcm));
+    const struct rtattr* rta = reinterpret_cast<const struct rtattr*>(
+        reinterpret_cast<const char*>(tcm) + NLMSG_ALIGN(sizeof(*tcm)));
+
+    auto qdisc_info = NetlinkMessageParser::parse_qdisc_message(tcm, rta, attrlen);
+
+    // 检查是否为 "noqueue" 类型，如果是则忽略
+    auto kind_it = qdisc_info.find("kind");
+    if (kind_it != qdisc_info.end() && kind_it->second == "noqueue") {
+        return; // 忽略 noqueue 类型的 qdisc
+    }
+
+    // 调用回调函数
+    if (qdisc_callback_) {
+        qdisc_callback_(nlh, message_type_to_string(msg_type));
     }
 }
 

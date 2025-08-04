@@ -156,3 +156,8 @@ dkms.conf
 # debug information files
 *.dwo
 converge_analyze_cpp/build-static/ConvergenceAnalyzer
+converge_analyze_cpp/SIGNAL_HANDLING_IMPROVEMENTS.md
+converge_analyze_cpp/simple_test.cpp
+converge_analyze_cpp/test_log_path.cpp
+converge_analyze_cpp/test_unified_monitor.cpp
+converge_analyze_cpp/build-static/test_unified_monitor

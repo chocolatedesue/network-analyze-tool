@@ -20,16 +20,30 @@ Logger::Logger(const std::string& log_path) {
     if (log_path.empty()) {
         log_file_path_ = setup_default_log_path();
     } else {
-        log_file_path_ = log_path;
-        if (!ensure_log_directory(log_path)) {
+        // 检测输入路径是文件路径还是目录路径
+        std::string resolved_path = resolve_log_path(log_path);
+        log_file_path_ = resolved_path;
+
+        if (!ensure_log_directory(resolved_path)) {
             // 如果无法创建目录，回退到当前目录
+            std::cout << "⚠️  无法创建日志目录，回退到当前执行路径\n";
+
             // 提取文件名
-            const char* filename = strrchr(log_path.c_str(), '/');
+            const char* filename = strrchr(resolved_path.c_str(), '/');
             if (filename) {
                 log_file_path_ = "./" + std::string(filename + 1);
             } else {
-                log_file_path_ = "./" + log_path;
+                log_file_path_ = "./" + resolved_path;
             }
+
+            // 验证回退路径是否可用
+            if (!test_file_creation(log_file_path_)) {
+                std::cerr << "❌ 错误: 无法在当前目录创建日志文件 " << log_file_path_ << "\n";
+                std::cerr << "   请检查当前目录的写权限或指定其他日志路径\n";
+                throw std::runtime_error("无法创建日志文件，程序退出");
+            }
+
+            std::cout << "✅ 日志文件将创建在: " << log_file_path_ << "\n";
         }
     }
 }
@@ -42,17 +56,20 @@ void Logger::start() {
     if (running_.load()) {
         return;
     }
-    
+
     running_.store(true);
-    
+
     // 尝试打开日志文件
     log_file_.open(log_file_path_, std::ios::out | std::ios::app);
     if (!log_file_.is_open()) {
-        std::cerr << "无法打开日志文件 " << log_file_path_ << "，仅使用控制台输出\n";
+        std::cerr << "❌ 错误: 无法打开日志文件 " << log_file_path_ << "\n";
+        std::cerr << "   请检查文件路径和权限，程序退出\n";
+        running_.store(false);
+        throw std::runtime_error("无法打开日志文件，程序退出");
     } else {
-        std::cout << "JSON结构化日志文件已配置: " << log_file_path_ << "\n";
+        std::cout << "✅ JSON结构化日志文件已配置: " << log_file_path_ << "\n";
     }
-    
+
     // 启动日志处理线程
     log_thread_ = std::thread(&Logger::log_processor_loop, this);
 }
@@ -202,18 +219,69 @@ std::string Logger::escape_json_string(const std::string& str) const {
 
 std::string Logger::setup_default_log_path() const {
     std::string log_dir = "/var/log/frr";
+    std::string log_file_path;
 
     // 检查目录是否存在，如果不存在尝试创建
     struct stat st;
     if (stat(log_dir.c_str(), &st) != 0) {
         // 目录不存在，尝试创建
         if (mkdir(log_dir.c_str(), 0755) != 0) {
+            std::cout << "⚠️  无法创建 /var/log/frr 目录，使用当前目录\n";
             log_dir = ".";
-            std::cout << "无法创建 /var/log/frr 目录，使用当前目录: " << log_dir << "\n";
+        } else {
+            std::cout << "✅ 创建日志目录: " << log_dir << "\n";
         }
     }
 
-    return log_dir + "/async_route_convergence_cpp.json";
+    log_file_path = log_dir + "/async_route_convergence_cpp.json";
+
+    // 验证日志文件路径是否可用
+    if (!test_file_creation(log_file_path)) {
+        std::cerr << "❌ 错误: 无法在 " << log_dir << " 目录创建日志文件\n";
+        std::cerr << "   请检查目录权限或指定其他日志路径\n";
+        throw std::runtime_error("无法创建默认日志文件，程序退出");
+    }
+
+    return log_file_path;
+}
+
+std::string Logger::resolve_log_path(const std::string& input_path) const {
+    // 检查输入路径是否存在
+    struct stat st;
+    if (stat(input_path.c_str(), &st) == 0) {
+        // 路径存在，检查是文件还是目录
+        if (S_ISDIR(st.st_mode)) {
+            // 是目录，添加默认文件名
+            std::string resolved_path = input_path;
+            if (resolved_path.back() != '/') {
+                resolved_path += '/';
+            }
+            resolved_path += "route_converge.json";
+            std::cout << "📁 检测到目录路径，使用默认文件名: " << resolved_path << "\n";
+            return resolved_path;
+        } else {
+            // 是文件，直接使用
+            std::cout << "📄 使用指定的文件路径: " << input_path << "\n";
+            return input_path;
+        }
+    } else {
+        // 路径不存在，判断是否包含文件扩展名或以/结尾
+        if (input_path.back() == '/' ||
+            (input_path.find('.') == std::string::npos && input_path.find('/') != std::string::npos)) {
+            // 看起来像目录路径
+            std::string resolved_path = input_path;
+            if (resolved_path.back() != '/') {
+                resolved_path += '/';
+            }
+            resolved_path += "route_converge.json";
+            std::cout << "📁 路径看起来像目录，使用默认文件名: " << resolved_path << "\n";
+            return resolved_path;
+        } else {
+            // 看起来像文件路径
+            std::cout << "📄 使用指定的文件路径: " << input_path << "\n";
+            return input_path;
+        }
+    }
 }
 
 bool Logger::ensure_log_directory(const std::string& path) const {
@@ -236,6 +304,21 @@ bool Logger::ensure_log_directory(const std::string& path) const {
 
     // 尝试创建目录（递归）
     return ensure_log_directory(dir_path) && mkdir(dir_path.c_str(), 0755) == 0;
+}
+
+bool Logger::test_file_creation(const std::string& path) const {
+    // 尝试创建一个测试文件来验证路径是否可写
+    std::ofstream test_file(path, std::ios::out | std::ios::app);
+    if (!test_file.is_open()) {
+        return false;
+    }
+
+    // 尝试写入一个测试字符
+    test_file << "";
+    bool success = test_file.good();
+    test_file.close();
+
+    return success;
 }
 
 // 静态辅助方法实现
@@ -316,6 +399,7 @@ JsonObject Logger::create_route_event_log(const std::string& router_name,
     return log;
 }
 
+#if HAS_OPTIONAL
 JsonObject Logger::create_session_completed_log(const std::string& router_name,
                                                int session_id,
                                                const std::optional<int64_t>& convergence_time_ms,
@@ -324,6 +408,16 @@ JsonObject Logger::create_session_completed_log(const std::string& router_name,
                                                int64_t convergence_threshold_ms,
                                                const std::unordered_map<std::string, std::string>& netem_info,
                                                const std::string& user) {
+#else
+JsonObject Logger::create_session_completed_log(const std::string& router_name,
+                                               int session_id,
+                                               const optional<int64_t>& convergence_time_ms,
+                                               int route_events_count,
+                                               int64_t session_duration_ms,
+                                               int64_t convergence_threshold_ms,
+                                               const std::unordered_map<std::string, std::string>& netem_info,
+                                               const std::string& user) {
+#endif
     auto log = create_event_log("session_completed", router_name, user);
     log["session_id"] = static_cast<int64_t>(session_id);
 

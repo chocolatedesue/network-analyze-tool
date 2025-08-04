@@ -1,6 +1,8 @@
 #include "convergence_monitor.h"
+#include <chrono>
 #include <iostream>
 #include <iomanip>
+#include <ratio>
 #include <sstream>
 #include <algorithm>
 #include <cmath>
@@ -236,7 +238,7 @@ void ConvergenceMonitor::convergence_checker_loop() {
         std::unique_lock<std::mutex> lock(convergence_mutex_);
 
         // 等待1秒或直到被通知停止
-        if (convergence_cv_.wait_for(lock, std::chrono::seconds(1),
+        if (convergence_cv_.wait_for(lock, std::chrono::milliseconds(500),
                                    [this] { return !running_.load(); })) {
             break;
         }

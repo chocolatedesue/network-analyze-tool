@@ -9,7 +9,30 @@
 #include <condition_variable>
 #include <atomic>
 #include <unordered_map>
-#include <optional>
+
+// C++17兼容性检查
+#if __cplusplus >= 201703L
+    #include <optional>
+    #define HAS_OPTIONAL 1
+#else
+    #define HAS_OPTIONAL 0
+    // 简单的optional替代实现
+    template<typename T>
+    class optional {
+    private:
+        bool has_value_;
+        T value_;
+    public:
+        optional() : has_value_(false) {}
+        optional(const T& val) : has_value_(true), value_(val) {}
+
+        bool has_value() const { return has_value_; }
+        const T& value() const { return value_; }
+        T& value() { return value_; }
+
+        explicit operator bool() const { return has_value_; }
+    };
+#endif
 
 // 简化的JSON值类型实现，避免variant依赖
 class JsonValue {
@@ -118,6 +141,7 @@ public:
                                             const std::unordered_map<std::string, std::string>& route_info,
                                             const std::string& user);
     
+#if HAS_OPTIONAL
     static JsonObject create_session_completed_log(const std::string& router_name,
                                                   int session_id,
                                                   const std::optional<int64_t>& convergence_time_ms,
@@ -126,6 +150,16 @@ public:
                                                   int64_t convergence_threshold_ms,
                                                   const std::unordered_map<std::string, std::string>& netem_info,
                                                   const std::string& user);
+#else
+    static JsonObject create_session_completed_log(const std::string& router_name,
+                                                  int session_id,
+                                                  const optional<int64_t>& convergence_time_ms,
+                                                  int route_events_count,
+                                                  int64_t session_duration_ms,
+                                                  int64_t convergence_threshold_ms,
+                                                  const std::unordered_map<std::string, std::string>& netem_info,
+                                                  const std::string& user);
+#endif
     
     static JsonObject create_monitoring_start_log(const std::string& router_name,
                                                  const std::string& user,
@@ -148,7 +182,13 @@ public:
 private:
     // 设置默认日志路径
     std::string setup_default_log_path() const;
-    
+
+    // 解析日志路径（检测是文件还是目录）
+    std::string resolve_log_path(const std::string& input_path) const;
+
     // 确保日志目录存在
     bool ensure_log_directory(const std::string& path) const;
+
+    // 测试文件是否可以创建
+    bool test_file_creation(const std::string& path) const;
 };
