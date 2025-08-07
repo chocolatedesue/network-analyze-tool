@@ -191,4 +191,7 @@ private:
 
     // 测试文件是否可以创建
     bool test_file_creation(const std::string& path) const;
+
+    // 确保日志文件具有正确的权限（666）
+    void ensure_log_file_permissions(const std::string& path) const;
 };

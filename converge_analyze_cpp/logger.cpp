@@ -7,6 +7,7 @@
 #include <sys/stat.h>
 #include <libgen.h>
 #include <cstring>
+#include <fcntl.h>
 
 // C++17兼容性检查
 #if __cplusplus >= 201703L
@@ -58,6 +59,9 @@ void Logger::start() {
     }
 
     running_.store(true);
+
+    // 确保日志文件以正确的权限创建（666权限，与Go版本一致）
+    ensure_log_file_permissions(log_file_path_);
 
     // 尝试打开日志文件
     log_file_.open(log_file_path_, std::ios::out | std::ios::app);
@@ -307,18 +311,34 @@ bool Logger::ensure_log_directory(const std::string& path) const {
 }
 
 bool Logger::test_file_creation(const std::string& path) const {
-    // 尝试创建一个测试文件来验证路径是否可写
-    std::ofstream test_file(path, std::ios::out | std::ios::app);
-    if (!test_file.is_open()) {
+    // 使用POSIX open函数创建文件，设置666权限（与Go版本一致）
+    int fd = open(path.c_str(), O_CREAT | O_WRONLY | O_APPEND, 0666);
+    if (fd < 0) {
         return false;
     }
 
     // 尝试写入一个测试字符
-    test_file << "";
-    bool success = test_file.good();
-    test_file.close();
+    ssize_t result = write(fd, "", 0);
+    close(fd);
 
-    return success;
+    return result >= 0;
+}
+
+void Logger::ensure_log_file_permissions(const std::string& path) const {
+    // 如果文件不存在，使用open创建并设置正确权限
+    struct stat st;
+    if (stat(path.c_str(), &st) != 0) {
+        // 文件不存在，创建它
+        int fd = open(path.c_str(), O_CREAT | O_WRONLY | O_APPEND, 0666);
+        if (fd >= 0) {
+            close(fd);
+            // 显式设置权限以覆盖umask的影响
+            chmod(path.c_str(), 0666);
+        }
+    } else {
+        // 文件存在，确保权限正确（666权限，与Go版本一致）
+        chmod(path.c_str(), 0666);
+    }
 }
 
 // 静态辅助方法实现
