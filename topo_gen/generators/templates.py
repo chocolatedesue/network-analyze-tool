@@ -40,7 +40,7 @@ class ZebraTemplateGenerator(BaseTemplateGenerator):
         super().__init__("zebra.conf")
     
     def generate(self, config: TemplateConfig) -> str:
-        """生成zebra.conf模板"""
+        """生成zebra.conf模板 - 按建议文档优化"""
         return f"""!
 ! Zebra configuration for {config.hostname}
 !
@@ -51,14 +51,21 @@ hostname {config.hostname}
 password zebra
 enable password zebra
 !
+! Loopback Interface (基础网络配置)
 interface lo
+ description "Loopback interface for router ID"
  ipv6 address {config.loopback_ipv6}/128
 !
-log file /var/log/frr/zebra.log debugging
-log commands
+! Physical Interfaces (基础网络配置)
+! 在实际部署中，这里会有具体的物理接口配置
 !
+! IP Forwarding (基础网络配置)
 ip forwarding
 ipv6 forwarding
+!
+! Logging (在基础网络配置后)
+log file /var/log/frr/zebra.log debugging
+log commands
 !
 line vty
 !

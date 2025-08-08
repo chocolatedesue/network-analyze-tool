@@ -150,34 +150,50 @@ class ModernTopologyGenerator:
     async def _generate_links(self, context: GenerationContext) -> Result[GenerationContext, str]:
         """生成链路信息"""
         try:
-            # 获取拓扑生成器
-            topology = self._get_topology_generator(context.config.topology_type)
-            
-            # 生成所有链路
+            # 生成所有链路，避免重复
             links = []
             link_id_counter = 0
-            
+            processed_pairs = set()
+
+            # 获取拓扑生成器
+            topology = self._get_topology_generator(context.config.topology_type)
+
             for router in context.routers:
                 neighbors = topology.get_neighbors(router.coordinate, context.config.size)
-                
+
                 for direction, neighbor_coord in neighbors.items():
-                    # 避免重复链路（只处理坐标较小的一端）
-                    if self._should_create_link(router.coordinate, neighbor_coord):
+                    # 创建标准化的坐标对，避免重复链路
+                    coord_pair = tuple(sorted([
+                        (router.coordinate.row, router.coordinate.col),
+                        (neighbor_coord.row, neighbor_coord.col)
+                    ]))
+
+                    if coord_pair not in processed_pairs:
+                        processed_pairs.add(coord_pair)
+
+                        # 确定链路的方向（从坐标较小的节点到较大的节点）
+                        if (router.coordinate.row, router.coordinate.col) < (neighbor_coord.row, neighbor_coord.col):
+                            coord1, coord2 = router.coordinate, neighbor_coord
+                            link_direction = direction
+                        else:
+                            coord1, coord2 = neighbor_coord, router.coordinate
+                            link_direction = direction.opposite
+
                         link = await self._create_link_info(
-                            router.coordinate, 
-                            neighbor_coord, 
-                            direction,
+                            coord1,
+                            coord2,
+                            link_direction,
                             link_id_counter,
                             context.config
                         )
                         links.append(link)
                         link_id_counter += 1
-            
+
             context.links = links
-            
+
             # 生成接口映射
             await self._generate_interface_mappings(context)
-            
+
             return Success(value=context)
 
         except Exception as e:
@@ -294,9 +310,9 @@ class ModernTopologyGenerator:
         )
     
     async def _create_link_info(
-        self, 
-        coord1: Coordinate, 
-        coord2: Coordinate, 
+        self,
+        coord1: Coordinate,
+        coord2: Coordinate,
         direction: Direction,
         link_id: int,
         config: TopologyConfig
@@ -304,14 +320,18 @@ class ModernTopologyGenerator:
         """创建链路信息"""
         router1_name = f"router_{coord1.row:02d}_{coord1.col:02d}"
         router2_name = f"router_{coord2.row:02d}_{coord2.col:02d}"
-        
+
+        # 重新计算正确的方向，特别是对于torus拓扑
+        actual_direction1 = self._calculate_actual_direction(coord1, coord2, config.size, config.topology_type)
+        actual_direction2 = actual_direction1.opposite
+
         # 计算接口名称
-        router1_interface = self._direction_to_interface(direction)
-        router2_interface = self._direction_to_interface(direction.opposite)
-        
+        router1_interface = self._direction_to_interface(actual_direction1)
+        router2_interface = self._direction_to_interface(actual_direction2)
+
         # 生成IPv6地址
         network, router1_ipv6, router2_ipv6 = self._generate_link_ipv6(link_id, config)
-        
+
         return LinkInfo(
             router1_name=router1_name,
             router2_name=router2_name,
@@ -332,11 +352,46 @@ class ModernTopologyGenerator:
         """方向到接口名称的映射"""
         mapping = {
             Direction.NORTH: "eth1",
-            Direction.SOUTH: "eth2", 
+            Direction.SOUTH: "eth2",
             Direction.WEST: "eth3",
             Direction.EAST: "eth4"
         }
         return mapping[direction]
+
+    def _calculate_actual_direction(self, coord1: Coordinate, coord2: Coordinate, size: int, topology_type) -> Direction:
+        """计算实际的方向，特别处理torus拓扑的环绕连接"""
+        row_diff = coord2.row - coord1.row
+        col_diff = coord2.col - coord1.col
+
+        # 标准相邻方向
+        if row_diff == -1 and col_diff == 0:
+            return Direction.NORTH
+        elif row_diff == 1 and col_diff == 0:
+            return Direction.SOUTH
+        elif row_diff == 0 and col_diff == -1:
+            return Direction.WEST
+        elif row_diff == 0 and col_diff == 1:
+            return Direction.EAST
+
+        # 对于torus拓扑，处理环绕连接
+        if str(topology_type).lower() == 'torus' or (hasattr(topology_type, 'value') and topology_type.value.lower() == 'torus'):
+            # 北-南环绕：从(0,x)到(size-1,x)应该是向北，从(size-1,x)到(0,x)应该是向南
+            if row_diff == size - 1 and col_diff == 0:  # (0,x) -> (size-1,x) - 向北环绕
+                return Direction.NORTH
+            elif row_diff == -(size - 1) and col_diff == 0:  # (size-1,x) -> (0,x) - 向南环绕
+                return Direction.SOUTH
+
+            # 东-西环绕：从(x,0)到(x,size-1)应该是向西，从(x,size-1)到(x,0)应该是向东
+            if row_diff == 0 and col_diff == size - 1:  # (x,0) -> (x,size-1) - 向西环绕
+                return Direction.WEST
+            elif row_diff == 0 and col_diff == -(size - 1):  # (x,size-1) -> (x,0) - 向东环绕
+                return Direction.EAST
+
+        # 默认情况：选择一个合适的方向
+        if abs(row_diff) >= abs(col_diff):
+            return Direction.NORTH if row_diff < 0 else Direction.SOUTH
+        else:
+            return Direction.WEST if col_diff < 0 else Direction.EAST
     
     def _generate_router_id(self, coord: Coordinate, size: int) -> str:
         """生成路由器ID"""
@@ -345,19 +400,38 @@ class ModernTopologyGenerator:
     def _generate_loopback_ipv6(self, coord: Coordinate, config: TopologyConfig) -> IPv6Address:
         """生成Loopback IPv6地址"""
         prefix = config.network_config.loopback_prefix.rstrip(":")
-        return ipaddress.IPv6Address(f"{prefix}:0000:{coord.row:04x}:{coord.col:04x}::1")
+        # 使用灵活的十六进制格式，避免超过4位的限制
+        row_hex = f"{coord.row:x}" if coord.row <= 0xFFFF else f"{coord.row >> 16:x}:{coord.row & 0xFFFF:04x}"
+        col_hex = f"{coord.col:x}" if coord.col <= 0xFFFF else f"{coord.col >> 16:x}:{coord.col & 0xFFFF:04x}"
+        return ipaddress.IPv6Address(f"{prefix}:0000:{row_hex}:{col_hex}::1")
     
     def _generate_link_ipv6(self, link_id: int, config: TopologyConfig) -> tuple:
-        """生成链路IPv6地址 - 确保地址以1结尾，避免网络地址"""
+        """生成链路IPv6地址 - 使用/126网络选择地址，/127前缀配置"""
         prefix = config.network_config.link_prefix.rstrip(":")
 
-        # 使用/126网络，选择以1结尾的两个地址
-        network = ipaddress.IPv6Network(f"{prefix}:{link_id:04x}::/126")
+        # 将 link_id 分解为多个段，避免单个段超过 4 位十六进制
+        # 使用层次化地址分配：高16位作为第一段，低16位作为第二段
+        segment1 = (link_id >> 16) & 0xFFFF  # 高16位
+        segment2 = link_id & 0xFFFF          # 低16位
 
-        # 选择::1和::3地址，避免网络地址::0
-        network_addr = network.network_address
+        # 构建IPv6地址，确保每个段都不超过4位十六进制
+        if segment1 > 0:
+            # 如果有高位段，使用两段格式
+            ipv6_suffix = f"{segment1:x}:{segment2:04x}"
+        else:
+            # 如果没有高位段，使用单段格式
+            ipv6_suffix = f"{segment2:04x}"
+
+        # 使用/126网络选择地址，避免::0和::3
+        network_126 = ipaddress.IPv6Network(f"{prefix}:{ipv6_suffix}::/126")
+        network_addr = network_126.network_address
+
+        # 选择::1和::2地址，避免::0（网络地址）和::3（看起来像广播地址）
         addr1 = network_addr + 1  # ::1
-        addr2 = network_addr + 3  # ::3
+        addr2 = network_addr + 2  # ::2
+
+        # 返回/127网络用于配置（点对点链路标准）
+        network = ipaddress.IPv6Network(f"{prefix}:{ipv6_suffix}::/127")
 
         return network, addr1, addr2
     

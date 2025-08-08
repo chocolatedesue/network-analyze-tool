@@ -97,21 +97,26 @@ def create_header_section(router_name: str, description: str) -> ConfigSection:
 
 def create_interface_section(interface_name: str, ipv6_addr: IPv6Address) -> ConfigSection:
     """创建接口配置段"""
-    # 如果地址已经包含前缀，直接使用；否则添加/127
-    addr_with_prefix = ipv6_addr if '/' in ipv6_addr else f"{ipv6_addr}/127"
+    # 转换为字符串并检查是否包含前缀
+    addr_str = str(ipv6_addr)
+    addr_with_prefix = addr_str if '/' in addr_str else f"{addr_str}/127"
     content = [
         f"interface {interface_name}",
+        # f" description \"Point-to-point link interface\"",
         f" ipv6 address {addr_with_prefix}",
-        f" ipv6 nd ra-interval 10",
-        f" no ipv6 nd suppress-ra",
+        # f" no shutdown",
     ]
     return ConfigSection(f"Interface {interface_name}", content)
 
 def create_loopback_section(ipv6_addr: IPv6Address) -> ConfigSection:
     """创建Loopback接口配置段"""
+    # 转换为字符串并确保loopback地址包含/128前缀
+    addr_str = str(ipv6_addr)
+    addr_with_prefix = addr_str if '/128' in addr_str else f"{addr_str}/128"
     content = [
         "interface lo",
-        f" ipv6 address {ipv6_addr}/128",
+        # f" description \"Loopback interface for router ID\"",
+        f" ipv6 address {addr_with_prefix}",
     ]
     return ConfigSection("Loopback Interface", content)
 
@@ -121,19 +126,11 @@ def create_ospf_section(
     interfaces: Dict[str, str],
     topology_config: Optional[TopologyConfig] = None
 ) -> ConfigSection:
-    """创建OSPF配置段"""
+    """创建OSPF配置段 - 先接口配置，后router定义"""
     from ..core.types import ensure_ipv6_prefix, get_direction_for_interface
     from ..core.types import Direction as Dir
 
-    loopback_with_prefix = ensure_ipv6_prefix(str(router_info.loopback_ipv6), 128)
-    content = [
-        f"router ospf6",
-        f" ospf6 router-id {router_info.router_id}",
-        # f" area {router_info.area_id} range {loopback_with_prefix}",
-        f"area {router_info.area_id}",
-        " timers throttle spf 20 30 100",
-        " timers lsa min-arrival 0",
-    ]
+    content = []
 
     # 在Special模式下，对于gateway节点，需要排除用于eBGP的接口
     excluded_interfaces = set()
@@ -143,8 +140,8 @@ def create_ospf_section(
         router_info.node_type == NodeType.GATEWAY):
         excluded_interfaces = _get_ebgp_interfaces(router_info, topology_config)
 
-    # 添加接口配置
-    for interface_name in interfaces.keys():
+    # 1. 先配置所有接口（按接口名排序确保一致性）
+    for interface_name in sorted(interfaces.keys()):
         # 在Special模式下，跳过用于eBGP的接口
         if interface_name in excluded_interfaces:
             continue
@@ -178,11 +175,20 @@ def create_ospf_section(
             " ipv6 ospf6 network point-to-point",
         ])
 
-    # Loopback接口
+    # 2. Loopback接口配置
     content.extend([
         "interface lo",
-        f" ipv6 address {router_info.loopback_ipv6}/128",
         f" ipv6 ospf6 area {router_info.area_id}",
+    ])
+
+    # 3. 最后配置router ospf6（在接口配置之后）
+    content.extend([
+        "router ospf6",
+        f" ospf6 router-id {router_info.router_id}",
+        f" area {router_info.area_id}",
+        " timers throttle spf 20 30 100",
+        " timers lsa min-arrival 0",
+        " max-multipath 1",
     ])
 
     return ConfigSection("OSPF6 Configuration", content)
@@ -476,35 +482,36 @@ class DaemonsConfigGenerator:
         return "\n".join(content) + "\n"
 
 class ZebraConfigGenerator:
-    """Zebra配置生成器"""
-    
+    """Zebra配置生成器 - 按建议文档优化配置顺序"""
+
     @staticmethod
     def generate(router_info: RouterInfo, config: TopologyConfig) -> str:
-        """生成zebra配置"""
+        """生成zebra配置 - 先基础网络、后路由协议的顺序"""
         builder = ConfigBuilder()
-        
+
         # 添加头部
         builder.add_header(router_info.name, "Zebra configuration")
-        
-        # 添加日志配置
-        builder.add_section("Logging", [
-            "log file /var/log/frr/zebra.log debugging",
-            "log commands",
-        ])
 
-        # 添加Loopback接口
-        loopback_section = create_loopback_section(router_info.loopback_ipv6)
-        builder.sections.append(loopback_section)
-        
-        # 添加其他接口
-        for interface_name, ipv6_addr in router_info.interfaces.items():
-            interface_section = create_interface_section(interface_name, ipv6_addr)
-            builder.sections.append(interface_section)
-
-        # 添加转发配置
+        # 1. 基础网络配置 - IP转发（在接口配置后启用）
         builder.add_section("Forwarding", [
             "ip forwarding",
             "ipv6 forwarding",
+        ])
+
+        # 2. 基础网络配置 - Loopback接口（最重要的基础设施）
+        loopback_section = create_loopback_section(router_info.loopback_ipv6)
+        builder.sections.append(loopback_section)
+
+        # 3. 基础网络配置 - 物理接口（按接口名排序确保一致性）
+        for interface_name in sorted(router_info.interfaces.keys()):
+            ipv6_addr = router_info.interfaces[interface_name]
+            interface_section = create_interface_section(interface_name, ipv6_addr)
+            builder.sections.append(interface_section)
+
+        # 4. 日志配置（在基础网络配置后）
+        builder.add_section("Logging", [
+            "log file /var/log/frr/zebra.log debugging",
+            "log commands",
         ])
 
         # 添加尾部
@@ -532,9 +539,9 @@ class OSPF6ConfigGenerator:
         # 添加调试配置
         builder.add_section("Debug", [
             "debug ospf6 neighbor state",
-            "debug ospf6 spf process",
-            "debug ospf6 route table",
-            "debug ospf6 lsa unknown",
+            # "debug ospf6 spf process",
+            # "debug ospf6 route table",
+            # "debug ospf6 lsa unknown",
         ])
 
         # 添加OSPF配置

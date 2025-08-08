@@ -41,27 +41,32 @@ def generate_link_ipv6(size: int, coord1: Coordinate, coord2: Coordinate) -> Lin
 
     # 使用2001:db8:2000::/48作为链路地址空间
     base_network = ipaddress.IPv6Network("2001:db8:2000::/48")
-    
-    # 每个链路使用/126子网，这样有4个地址可选，我们选择以1结尾的两个
+
+    # 每个链路使用/126子网，这样有4个地址可选，我们选择::1和::2
     subnet_bits = 126 - 48  # 78位用于子网编号
     subnet_id = link_id % (2 ** subnet_bits)
 
-    # 生成/126子网
-    link_network = ipaddress.IPv6Network(f"2001:db8:2000:{subnet_id:x}::/126")
+    # 生成/126子网用于地址选择
+    link_network_126 = ipaddress.IPv6Network(f"2001:db8:2000:{subnet_id:x}::/126")
 
     # 对于/126网络，我们有4个地址：::0, ::1, ::2, ::3
-    # 选择以1结尾的两个地址：::1 和 ::3（跳过::2避免连续）
-    network_addr = link_network.network_address
-    addr1 = str(network_addr + 1)  # ::1
-    addr2 = str(network_addr + 3)  # ::3
+    # 选择::1和::2，避免::0（网络地址）和::3（看起来像广播地址）
+    network_addr = link_network_126.network_address
+
+    # 两个路由器都得到非零结尾的地址
+    addr1 = str(network_addr + 1)  # router1 得到::1
+    addr2 = str(network_addr + 2)  # router2 得到::2
+
+    # 但是接口配置仍然使用/127前缀（点对点链路的标准做法）
+    link_network = ipaddress.IPv6Network(f"2001:db8:2000:{subnet_id:x}::/127")
 
     router1_name = f"router_{coord1.row:02d}_{coord1.col:02d}"
     router2_name = f"router_{coord2.row:02d}_{coord2.col:02d}"
 
     return LinkAddress(
         network=str(link_network),
-        router1_addr=f"{addr1}/127",  # 使用/127前缀，地址以1结尾
-        router2_addr=f"{addr2}/127",  # 使用/127前缀，地址以1结尾
+        router1_addr=f"{addr1}/127",  # 使用/127前缀
+        router2_addr=f"{addr2}/127",  # 使用/127前缀
         router1_name=router1_name,
         router2_name=router2_name
     )
@@ -357,35 +362,32 @@ def convert_links_to_clab_format(
     """将链路信息转换为ContainerLab格式"""
     links = generate_all_links(config)
     clab_links = []
-    neighbors_func = get_neighbors_func(config.topology_type, config.size, config.special_config)
-    
+
+    # 生成正确的接口映射
+    interface_mappings = generate_interface_mappings(config, routers)
+
     # 为每个链路生成ContainerLab格式
     for link in links:
-        # 找到两个路由器的坐标
-        router1_coord = None
-        router2_coord = None
-        
-        for router in routers:
-            if router.name == link.router1_name:
-                router1_coord = router.coordinate
-            elif router.name == link.router2_name:
-                router2_coord = router.coordinate
-        
-        if router1_coord is None or router2_coord is None:
-            continue
-        
-        # 计算方向
-        direction1 = calculate_direction(router1_coord, router2_coord)
-        if direction1 is None:
-            direction1 = find_available_direction(router1_coord, neighbors_func)
-        
-        direction2 = REVERSE_DIRECTION[direction1]
-        
-        # 分配接口
-        intf1 = INTERFACE_MAPPING[direction1]
-        intf2 = INTERFACE_MAPPING[direction2]
-        
-        clab_links.append((link.router1_name, intf1, link.router2_name, intf2))
+        # 从接口映射中找到对应的接口
+        router1_interfaces = interface_mappings.get(link.router1_name, {})
+        router2_interfaces = interface_mappings.get(link.router2_name, {})
+
+        # 找到使用了这个链路地址的接口
+        intf1 = None
+        intf2 = None
+
+        for interface, addr in router1_interfaces.items():
+            if addr == link.router1_addr:
+                intf1 = interface
+                break
+
+        for interface, addr in router2_interfaces.items():
+            if addr == link.router2_addr:
+                intf2 = interface
+                break
+
+        if intf1 and intf2:
+            clab_links.append((link.router1_name, intf1, link.router2_name, intf2))
 
     return clab_links
 
@@ -393,7 +395,12 @@ def convert_links_to_clab_format(
 def generate_loopback_ipv6(area_id: int, coord: Coordinate) -> str:
     """生成IPv6环回地址"""
     row, col = coord.row, coord.col
-    address = f"2001:db8:1000:{area_id:04x}:{row:04x}:{col:04x}::1"
+    # 使用灵活的十六进制格式，避免超过4位的限制
+    area_hex = f"{area_id:x}" if area_id <= 0xFFFF else f"{area_id >> 16:x}:{area_id & 0xFFFF:04x}"
+    row_hex = f"{row:x}" if row <= 0xFFFF else f"{row >> 16:x}:{row & 0xFFFF:04x}"
+    col_hex = f"{col:x}" if col <= 0xFFFF else f"{col >> 16:x}:{col & 0xFFFF:04x}"
+
+    address = f"2001:db8:1000:{area_hex}:{row_hex}:{col_hex}::1"
     return address  # 不包含前缀，因为RouterInfo.loopback_ipv6字段期望纯地址
 
 
