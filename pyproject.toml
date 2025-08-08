@@ -1,0 +1,36 @@
+[project]
+name = "scripts"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+
+dependencies = [
+    # 核心依赖 - 保持最小化
+    "pydantic>=2.0.0",      # 数据验证和序列化
+    "rich>=13.0.0",         # 终端输出美化
+    "typer>=0.9.0",         # CLI框架
+    "pyyaml>=6.0.2",        # YAML处理
+    "anyio>=4.0.0",         # 统一异步框架
+]
+
+[project.scripts]
+topo-gen = "topo_gen.cli:app"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "hypothesis>=6.0.0",
+    "coverage>=7.0.0",
+    "mypy>=1.0.0",
+    "types-PyYAML>=6.0.0",
+    "black>=23.0.0",
+    "isort>=5.0.0",
+    "flake8>=6.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.1",
+]
