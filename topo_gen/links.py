@@ -36,8 +36,12 @@ def generate_link_ipv6(size: int, coord1: Coordinate, coord2: Coordinate) -> Lin
         coord1, coord2 = coord2, coord1
         node1_id, node2_id = node2_id, node1_id
 
-    # 计算链路ID（基于节点对的唯一标识）
-    link_id = node1_id * size * size + node2_id
+    # 计算链路ID（使用更简单的方法，避免过大的数值）
+    # 使用 Cantor pairing function 的简化版本来生成唯一的链路 ID
+    if node1_id < node2_id:
+        link_id = (node1_id + node2_id) * (node1_id + node2_id + 1) // 2 + node2_id
+    else:
+        link_id = (node1_id + node2_id) * (node1_id + node2_id + 1) // 2 + node1_id
 
     # 使用2001:db8:2000::/48作为链路地址空间
     base_network = ipaddress.IPv6Network("2001:db8:2000::/48")
@@ -46,8 +50,20 @@ def generate_link_ipv6(size: int, coord1: Coordinate, coord2: Coordinate) -> Lin
     subnet_bits = 126 - 48  # 78位用于子网编号
     subnet_id = link_id % (2 ** subnet_bits)
 
+    # 将 subnet_id 分解为多个段，避免单个段超过 4 位十六进制
+    segment1 = (subnet_id >> 16) & 0xFFFF  # 高16位
+    segment2 = subnet_id & 0xFFFF          # 低16位
+
+    # 构建IPv6地址，确保每个段都不超过4位十六进制
+    if segment1 > 0:
+        # 如果有高位段，使用两段格式
+        ipv6_suffix = f"{segment1:x}:{segment2:04x}"
+    else:
+        # 如果没有高位段，使用单段格式
+        ipv6_suffix = f"{segment2:04x}"
+
     # 生成/126子网用于地址选择
-    link_network_126 = ipaddress.IPv6Network(f"2001:db8:2000:{subnet_id:x}::/126")
+    link_network_126 = ipaddress.IPv6Network(f"2001:db8:2000:{ipv6_suffix}::/126")
 
     # 对于/126网络，我们有4个地址：::0, ::1, ::2, ::3
     # 选择::1和::2，避免::0（网络地址）和::3（看起来像广播地址）
@@ -58,7 +74,7 @@ def generate_link_ipv6(size: int, coord1: Coordinate, coord2: Coordinate) -> Lin
     addr2 = str(network_addr + 2)  # router2 得到::2
 
     # 但是接口配置仍然使用/127前缀（点对点链路的标准做法）
-    link_network = ipaddress.IPv6Network(f"2001:db8:2000:{subnet_id:x}::/127")
+    link_network = ipaddress.IPv6Network(f"2001:db8:2000:{ipv6_suffix}::/127")
 
     router1_name = f"router_{coord1.row:02d}_{coord1.col:02d}"
     router2_name = f"router_{coord2.row:02d}_{coord2.col:02d}"
