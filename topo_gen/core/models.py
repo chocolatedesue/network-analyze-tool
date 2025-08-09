@@ -364,6 +364,9 @@ class TopologyConfig(BaseConfig):
     # Dummy 生成控制（将真实配置保存为 -bak.conf，并生成空配置作为主文件）
     dummy_gen_protocols: Set[str] = Field(default_factory=set, description="需要生成空配置的协议集合，支持: ospf6d/bgpd/bfdd")
 
+    # 日志控制
+    disable_logging: bool = Field(default=False, description="禁用所有配置文件中的日志记录")
+
     @field_validator('dummy_gen_protocols')
     @classmethod
     def validate_dummy_gen_protocols(cls, v: Set[str]) -> Set[str]:

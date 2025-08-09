@@ -75,22 +75,22 @@ class FileSystemManager:
                 os.chmod, str(log_file_path), stat.S_IRWXU | stat.S_IRWXG | stat.S_IRWXO
             )
     
-    async def write_template_files(self, routers: List[RouterInfo]) -> Result:
+    async def write_template_files(self, routers: List[RouterInfo], config: TopologyConfig = None) -> Result:
         """写入模板文件"""
         try:
             for router in routers:
-                await self._write_router_templates(router)
-            
+                await self._write_router_templates(router, config)
+
             return Success(f"成功写入 {len(routers)} 个路由器的模板文件")
-            
+
         except Exception as e:
             return Failure(f"模板文件写入失败: {str(e)}")
-    
-    async def _write_router_templates(self, router: RouterInfo):
+
+    async def _write_router_templates(self, router: RouterInfo, config: TopologyConfig = None):
         """为单个路由器写入模板文件"""
-        templates = generate_all_templates(router)
+        templates = generate_all_templates(router, config)
         conf_path = AsyncPath(self.base_dir) / "etc" / router.name / "conf"
-        
+
         for template_name, content in templates.items():
             file_path = conf_path / template_name
             async with await file_path.open('w') as f:
@@ -310,11 +310,12 @@ async def create_all_directories(
 async def create_all_template_files(
     routers: List[RouterInfo],
     requirements: SystemRequirements,
-    base_dir: Path
+    base_dir: Path,
+    config: TopologyConfig = None
 ) -> Result:
     """创建所有模板文件"""
     fs_manager = FileSystemManager(base_dir)
-    return await fs_manager.write_template_files(routers)
+    return await fs_manager.write_template_files(routers, config)
 
 
 async def generate_all_config_files(

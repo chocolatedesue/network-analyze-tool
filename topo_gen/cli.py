@@ -167,6 +167,7 @@ def generate_grid(
     ospf6d_off: bool = typer.Option(False, "--ospf6d-off", help="仅关闭 OSPF6 守护进程"),
     bfdd_off: bool = typer.Option(False, "--bfdd-off", help="仅关闭 BFD 守护进程"),
     dummy_gen: List[str] = typer.Option([], "--dummy-gen", help="为指定协议生成空配置并将真实配置保存为 -bak.conf；支持: ospf6d,bgpd,bfdd；可多次传或用逗号分隔"),
+    disable_logging: bool = typer.Option(False, "--disable-logging", help="禁用所有配置文件中的日志记录"),
     yes: bool = typer.Option(False, "--yes", "-y", help="跳过确认")
 ):
     """生成Grid拓扑"""
@@ -189,7 +190,8 @@ def generate_grid(
             bgpd_off=bgpd_off,
             ospf6d_off=ospf6d_off,
             bfdd_off=bfdd_off,
-            dummy_gen_protocols=set(sum([s.lower().split(',') for s in dummy_gen], []))
+            dummy_gen_protocols=set(sum([s.lower().split(',') for s in dummy_gen], [])),
+            disable_logging=disable_logging
         )
     except Exception as e:
         console.print(f"[red]配置验证失败: {e}[/red]")
@@ -254,6 +256,7 @@ def generate_torus(
     ospf6d_off: bool = typer.Option(False, "--ospf6d-off", help="仅关闭 OSPF6 守护进程"),
     bfdd_off: bool = typer.Option(False, "--bfdd-off", help="仅关闭 BFD 守护进程"),
     dummy_gen: List[str] = typer.Option([], "--dummy-gen", help="为指定协议生成空配置并将真实配置保存为 -bak.conf；支持: ospf6d,bgpd,bfdd；可多次传或用逗号分隔"),
+    disable_logging: bool = typer.Option(False, "--disable-logging", help="禁用所有配置文件中的日志记录"),
     yes: bool = typer.Option(False, "--yes", "-y", help="跳过确认")
 ):
     """生成Torus拓扑"""
@@ -276,7 +279,8 @@ def generate_torus(
             bgpd_off=bgpd_off,
             ospf6d_off=ospf6d_off,
             bfdd_off=bfdd_off,
-            dummy_gen_protocols=set(sum([s.lower().split(',') for s in dummy_gen], []))
+            dummy_gen_protocols=set(sum([s.lower().split(',') for s in dummy_gen], [])),
+            disable_logging=disable_logging
         )
     except Exception as e:
         console.print(f"[red]配置验证失败: {e}[/red]")
@@ -340,6 +344,7 @@ def generate_special(
     ospf6d_off: bool = typer.Option(False, "--ospf6d-off", help="仅关闭 OSPF6 守护进程"),
     bfdd_off: bool = typer.Option(False, "--bfdd-off", help="仅关闭 BFD 守护进程"),
     dummy_gen: List[str] = typer.Option([], "--dummy-gen", help="为指定协议生成空配置并将真实配置保存为 -bak.conf；支持: ospf6d,bgpd,bfdd；可多次传或用逗号分隔"),
+    disable_logging: bool = typer.Option(False, "--disable-logging", help="禁用所有配置文件中的日志记录"),
     yes: bool = typer.Option(False, "--yes", "-y", help="跳过确认")
 ):
     """生成Special拓扑（6x6 DM示例）"""
@@ -375,6 +380,7 @@ def generate_special(
             ospf6d_off=ospf6d_off,
             bfdd_off=bfdd_off,
             dummy_gen_protocols=set(sum([s.lower().split(',') for s in dummy_gen], [])),
+            disable_logging=disable_logging,
             special_config=special_config
         )
     except Exception as e:

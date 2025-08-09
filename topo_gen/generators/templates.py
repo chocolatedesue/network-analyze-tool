@@ -20,6 +20,7 @@ class TemplateConfig:
     hostname: str
     router_id: RouterID
     loopback_ipv6: IPv6Address
+    disable_logging: bool = False
 
 
 class BaseTemplateGenerator:
@@ -41,6 +42,14 @@ class ZebraTemplateGenerator(BaseTemplateGenerator):
     
     def generate(self, config: TemplateConfig) -> str:
         """生成zebra.conf模板 - 按建议文档优化"""
+        logging_section = ""
+        if not config.disable_logging:
+            logging_section = """! Logging (在基础网络配置后)
+log file /var/log/frr/zebra.log debugging
+log commands
+!
+"""
+
         return f"""!
 ! Zebra configuration for {config.hostname}
 !
@@ -63,11 +72,7 @@ interface lo
 ip forwarding
 ipv6 forwarding
 !
-! Logging (在基础网络配置后)
-log file /var/log/frr/zebra.log debugging
-log commands
-!
-line vty
+{logging_section}line vty
 !
 """
 
@@ -80,6 +85,13 @@ class StaticTemplateGenerator(BaseTemplateGenerator):
     
     def generate(self, config: TemplateConfig) -> str:
         """生成staticd.conf模板"""
+        logging_section = ""
+        if not config.disable_logging:
+            logging_section = """log file /var/log/frr/staticd.log debugging
+log commands
+!
+"""
+
         return f"""!
 ! Static routing configuration for {config.hostname}
 !
@@ -88,10 +100,7 @@ frr defaults traditional
 !
 hostname {config.hostname}
 !
-log file /var/log/frr/staticd.log debugging
-log commands
-!
-line vty
+{logging_section}line vty
 !
 """
 
@@ -104,6 +113,13 @@ class MgmtTemplateGenerator(BaseTemplateGenerator):
     
     def generate(self, config: TemplateConfig) -> str:
         """生成mgmtd.conf模板"""
+        logging_section = ""
+        if not config.disable_logging:
+            logging_section = """log file /var/log/frr/mgmtd.log debugging
+log commands
+!
+"""
+
         return f"""!
 ! Management daemon configuration for {config.hostname}
 !
@@ -112,10 +128,7 @@ frr defaults traditional
 !
 hostname {config.hostname}
 !
-log file /var/log/frr/mgmtd.log debugging
-log commands
-!
-line vty
+{logging_section}line vty
 !
 """
 
@@ -168,27 +181,29 @@ class TemplateGeneratorFactory:
         return list(cls._generators.keys())
 
 
-def create_template_config(router_info: RouterInfo) -> TemplateConfig:
+def create_template_config(router_info: RouterInfo, topology_config: TopologyConfig = None) -> TemplateConfig:
     """从路由器信息创建模板配置"""
     hostname = f"r{router_info.coordinate.row:02d}_{router_info.coordinate.col:02d}"
-    
+    disable_logging = topology_config.disable_logging if topology_config else False
+
     return TemplateConfig(
         router_name=router_info.name,
         hostname=hostname,
         router_id=router_info.router_id,
-        loopback_ipv6=router_info.loopback_ipv6
+        loopback_ipv6=router_info.loopback_ipv6,
+        disable_logging=disable_logging
     )
 
 
-def generate_all_templates(router_info: RouterInfo) -> Dict[str, str]:
+def generate_all_templates(router_info: RouterInfo, topology_config: TopologyConfig = None) -> Dict[str, str]:
     """生成所有模板文件内容"""
-    template_config = create_template_config(router_info)
+    template_config = create_template_config(router_info, topology_config)
     results = {}
-    
+
     for template_name in TemplateGeneratorFactory.get_all_templates():
         generator = TemplateGeneratorFactory.create(template_name)
         results[template_name] = generator.generate(template_config)
-    
+
     return results
 
 

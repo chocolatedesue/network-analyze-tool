@@ -53,7 +53,7 @@ class TopologyEngine:
                 )
             
             # 4. 创建模板文件
-            template_result = await create_all_template_files(routers, requirements, base_dir)
+            template_result = await create_all_template_files(routers, requirements, base_dir, config)
             if isinstance(template_result, Failure):
                 return GenerationResult(
                     success=False,

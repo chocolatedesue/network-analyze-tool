@@ -33,10 +33,11 @@ bash <(curl -sSL https://linuxmirrors.cn/docker.sh) \
 # echo "gpgcheck=0" | sudo tee -a /etc/yum.repos.d/netdevops.fury.site_yum_.repo
 
 wget https://xget.xi-xu.me/gh/srl-labs/containerlab/releases/download/v0.69.3/containerlab_0.69.3_linux_amd64.rpm
-
-
+wget https://gitee.com/RubyMetric/chsrc/releases/download/v0.2.2/chsrc_latest-1_amd64.deb
+wget https://cnb.cool/jmncnic/utils/-/releases/download/v1/crun-1.23.1-linux-amd64
 sudo dnf install fish uv crun jq -y
 
+sudo apt install -y fish crun jq
 # change docker default runtime to crun, edit /etc/docker/daemon.json
 
 crun_path=$(which crun) 
@@ -57,3 +58,6 @@ git clone https://xget.xi-xu.me/gh/chocolatedesue/network-analyze-tool.git --dep
 
 cd network-analyze-tool && uv sync && bash experiment_utils/setup/tn2.sh
 
+
+
+time clab deploy -t ospfv3_torus25x25/ --reconfigure --runtime podman

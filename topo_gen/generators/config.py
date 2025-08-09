@@ -539,10 +539,11 @@ class ZebraConfigGenerator:
             builder.sections.append(interface_section)
 
         # 4. 日志配置（在基础网络配置后）
-        builder.add_section("Logging", [
-            "log file /var/log/frr/zebra.log debugging",
-            "log commands",
-        ])
+        if not config.disable_logging:
+            builder.add_section("Logging", [
+                "log file /var/log/frr/zebra.log debugging",
+                "log commands",
+            ])
 
         # 添加尾部
         builder.add_footer()
@@ -565,18 +566,20 @@ class OSPF6ConfigGenerator:
         builder.add_header(router_info.name, "OSPF6 configuration")
 
         # 添加日志配置
-        builder.add_section("Logging", [
-            "log file /var/log/frr/ospf6d.log debugging",
-            "log commands",
-        ])
+        if not config.disable_logging:
+            builder.add_section("Logging", [
+                "log file /var/log/frr/ospf6d.log debugging",
+                "log commands",
+            ])
 
         # 添加调试配置
-        builder.add_section("Debug", [
-            "debug ospf6 neighbor state",
-            # "debug ospf6 spf process",
-            # "debug ospf6 route table",
-            # "debug ospf6 lsa unknown",
-        ])
+        if not config.disable_logging:
+            builder.add_section("Debug", [
+                "debug ospf6 neighbor state",
+                # "debug ospf6 spf process",
+                # "debug ospf6 route table",
+                # "debug ospf6 lsa unknown",
+            ])
 
         # 添加OSPF配置
         ospf_section = create_ospf_section(router_info, config.ospf_config, router_info.interfaces, config)
@@ -602,10 +605,11 @@ class BGPConfigGenerator:
         builder.add_header(router_info.name, "BGP configuration")
 
         # 添加日志配置
-        builder.add_section("Logging", [
-            "log file /var/log/frr/bgpd.log debugging",
-            "log commands",
-        ])
+        if not config.disable_logging:
+            builder.add_section("Logging", [
+                "log file /var/log/frr/bgpd.log debugging",
+                "log commands",
+            ])
 
         # 获取所有Gateway路由器（如果没有提供all_routers，则只包含当前路由器）
         gateway_routers = []
@@ -636,10 +640,11 @@ class BFDConfigGenerator:
         builder.add_header(router_info.name, "BFD configuration")
 
         # 添加日志配置
-        builder.add_section("Logging", [
-            "log file /var/log/frr/bfdd.log debugging",
-            "log commands",
-        ])
+        if not config.disable_logging:
+            builder.add_section("Logging", [
+                "log file /var/log/frr/bfdd.log debugging",
+                "log commands",
+            ])
 
         # 添加BFD配置
         bfd_section = create_bfd_section(config.bfd_config)
