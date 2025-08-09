@@ -505,6 +505,8 @@ class DaemonsConfigGenerator:
             f"bfdd={'yes' if enable_bfd else 'no'}",
             "fabricd=no",
             "vrrpd=no",
+            "mgmtd=no",
+            "staticd=no",
         ]
         
         return "\n".join(content) + "\n"

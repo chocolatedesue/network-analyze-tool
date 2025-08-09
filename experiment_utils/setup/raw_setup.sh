@@ -29,10 +29,13 @@ bash <(curl -sSL https://linuxmirrors.cn/docker.sh) \
       --protocol http 
 
 
-sudo dnf config-manager -y --add-repo "https://netdevops.fury.site/yum/" && \
-echo "gpgcheck=0" | sudo tee -a /etc/yum.repos.d/netdevops.fury.site_yum_.repo
+# sudo dnf config-manager -y --add-repo "https://netdevops.fury.site/yum/" && \
+# echo "gpgcheck=0" | sudo tee -a /etc/yum.repos.d/netdevops.fury.site_yum_.repo
 
-sudo dnf install containerlab fish uv crun jq -y
+wget https://xget.xi-xu.me/gh/srl-labs/containerlab/releases/download/v0.69.3/containerlab_0.69.3_linux_amd64.rpm
+
+
+sudo dnf install fish uv crun jq -y
 
 # change docker default runtime to crun, edit /etc/docker/daemon.json
 
