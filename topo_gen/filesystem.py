@@ -262,7 +262,7 @@ class FileSystemManager:
                 "defaults": {
                     # 限制所有容器 CPU 亲和性到 0~cpus-1，单容器上限 1.0 vCPU，内存上限 512MB
                     "cpu-set": cpu_set_range,
-                    "cpu": 1.0,
+                    # "cpu": 1.0,
                     "memory": "512MB",
                 },
                 "nodes": nodes,

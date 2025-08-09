@@ -44,6 +44,8 @@ try:
         run_shell_with_retry,
         ProgressReporter,
         create_container_name,
+        build_container_exec_command,
+        validate_runtime,
     )
 except ModuleNotFoundError:
     import sys as _sys
@@ -59,6 +61,8 @@ except ModuleNotFoundError:
         run_shell_with_retry,
         ProgressReporter,
         create_container_name,
+        build_container_exec_command,
+        validate_runtime,
     )
 
 console = Console()
@@ -324,7 +328,8 @@ def generate_injection_commands(
     injection_type: InjectionType,
     topology: TopologyConfig,
     prefix: str,
-    injection_config: InjectionConfig
+    injection_config: InjectionConfig,
+    runtime: str = "docker"
 ) -> List[InjectionCommand]:
     """生成故障注入命令"""
     commands = []
@@ -352,11 +357,11 @@ def generate_injection_commands(
             cmd2 = f"containerlab tools netem set -n {container2} -i {interface2} --loss 0 --delay {delay2}"
     else:  # InjectionType.LINK
         if action == LinkAction.DOWN:
-            cmd1 = f"docker exec {container1} ifconfig {interface1} down"
-            cmd2 = f"docker exec {container2} ifconfig {interface2} down"
+            cmd1 = build_container_exec_command(container1, f"ifconfig {interface1} down", runtime)
+            cmd2 = build_container_exec_command(container2, f"ifconfig {interface2} down", runtime)
         else:  # LinkAction.UP
-            cmd1 = f"docker exec {container1} ifconfig {interface1} up"
-            cmd2 = f"docker exec {container2} ifconfig {interface2} up"
+            cmd1 = build_container_exec_command(container1, f"ifconfig {interface1} up", runtime)
+            cmd2 = build_container_exec_command(container2, f"ifconfig {interface2} up", runtime)
     
     commands.extend([
         InjectionCommand(container1, interface1, cmd1, link, action),
@@ -441,7 +446,8 @@ def print_injection_summary(
     total_links: int,
     failed_links: Set[Link],
     topology: TopologyConfig,
-    prefix: str
+    prefix: str,
+    runtime: str = "docker"
 ):
     """打印注入配置摘要"""
     log_info(f"故障注入类型: {injection_config.injection_type.value}")
@@ -458,13 +464,14 @@ def print_injection_summary(
 
     # 显示示例命令
     if failed_links:
-        show_example_command(failed_links, injection_config, topology, prefix)
+        show_example_command(failed_links, injection_config, topology, prefix, runtime)
 
 def show_example_command(
     failed_links: Set[Link],
     injection_config: InjectionConfig,
     topology: TopologyConfig,
-    prefix: str
+    prefix: str,
+    runtime: str = "docker"
 ):
     """显示将要执行的示例命令"""
     # 取第一个链路作为示例
@@ -473,7 +480,7 @@ def show_example_command(
     # 生成示例命令
     example_commands = generate_injection_commands(
         example_link, LinkAction.DOWN, injection_config.injection_type,
-        topology, prefix, injection_config
+        topology, prefix, injection_config, runtime
     )
 
     if example_commands:
@@ -536,7 +543,7 @@ async def execute_injection_cycle(
     injection_commands = []
     for link in failed_links:
         commands = generate_injection_commands(
-            link, LinkAction.DOWN, injection_config.injection_type, topology, prefix, injection_config
+            link, LinkAction.DOWN, injection_config.injection_type, topology, prefix, injection_config, exec_config.runtime
         )
         injection_commands.extend(commands)
 
@@ -568,7 +575,7 @@ async def execute_injection_cycle(
     recovery_commands = []
     for link in failed_links:
         commands = generate_injection_commands(
-            link, LinkAction.UP, injection_config.injection_type, topology, prefix, injection_config
+            link, LinkAction.UP, injection_config.injection_type, topology, prefix, injection_config, exec_config.runtime
         )
         recovery_commands.extend(commands)
 
@@ -705,20 +712,21 @@ async def run_fault_injection_functional(
     if setup_result.is_error():
         return setup_result
 
-    context = handle_topology_setup(*setup_result.unwrap(), prefix, injection_config)
+    context = handle_topology_setup(*setup_result.unwrap(), prefix, injection_config, exec_config.runtime)
     return await handle_execution_mode(context, execute, show_preview, exec_config)
 
-def handle_topology_setup(topology: TopologyConfig, all_links: Set[Link], failed_links: Set[Link], prefix: str, injection_config: InjectionConfig) -> dict:
+def handle_topology_setup(topology: TopologyConfig, all_links: Set[Link], failed_links: Set[Link], prefix: str, injection_config: InjectionConfig, runtime: str = "docker") -> dict:
     """处理拓扑设置 - 副作用隔离"""
     print_topology_summary(topology, prefix)
-    print_injection_summary(injection_config, len(all_links), failed_links, topology, prefix)
+    print_injection_summary(injection_config, len(all_links), failed_links, topology, prefix, runtime)
 
     return {
         'topology': topology,
         'all_links': all_links,
         'failed_links': failed_links,
         'prefix': prefix,
-        'injection_config': injection_config
+        'injection_config': injection_config,
+        'runtime': runtime
     }
 
 async def handle_execution_mode(context: dict, execute: bool, show_preview: bool, exec_config: ExecutionConfig) -> Result[List[CycleResult], str]:
@@ -768,6 +776,7 @@ def create_typer_app():
         execute: bool = typer.Option(False, "--execute", help="执行故障注入"),
         workers: int = typer.Option(4, "--workers", help="并发工作线程数"),
         timeout: int = typer.Option(30, "--timeout", help="命令超时时间(秒)"),
+        runtime: str = typer.Option("docker", "--runtime", help="容器运行时 (docker/podman)"),
         verbose: bool = typer.Option(False, "--verbose", help="显示详细信息")
     ):
         """执行网络故障注入"""
@@ -778,6 +787,11 @@ def create_typer_app():
                     injection_type_enum = InjectionType(injection_type.lower())
                 except ValueError:
                     log_error(f"无效的注入类型: {injection_type}. 可用类型: {', '.join([t.value for t in InjectionType])}")
+                    raise typer.Exit(1)
+
+                # 验证容器运行时
+                if not validate_runtime(runtime):
+                    log_error(f"无效的容器运行时: {runtime}. 支持的运行时: docker, podman")
                     raise typer.Exit(1)
 
                 # 解析指定链路（如果提供）
@@ -803,7 +817,7 @@ def create_typer_app():
                     horizontal_delay=horizontal_delay,
                     specific_link=parsed_specific_link
                 )
-                exec_config = ExecutionConfig(max_workers=workers, timeout=timeout, verbose=verbose)
+                exec_config = ExecutionConfig(max_workers=workers, timeout=timeout, verbose=verbose, runtime=runtime)
 
                 # 执行主要逻辑
                 result = await run_fault_injection_functional(

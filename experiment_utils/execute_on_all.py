@@ -99,6 +99,7 @@ class ExecutionTask:
     mode: ExecutionMode
     signal: Optional[Signal] = None
     process_pattern: Optional[str] = None
+    runtime: str = "docker"  # 容器运行时: docker 或 podman
 
 @dataclass(frozen=True)
 class ExecutionResult:
@@ -133,7 +134,8 @@ def create_execution_task(
     command: str,
     mode: ExecutionMode,
     signal: Optional[Signal] = None,
-    process_pattern: Optional[str] = None
+    process_pattern: Optional[str] = None,
+    runtime: str = "docker"
 ) -> ExecutionTask:
     """创建执行任务"""
     return ExecutionTask(
@@ -141,30 +143,33 @@ def create_execution_task(
         command=command,
         mode=mode,
         signal=signal,
-        process_pattern=process_pattern
+        process_pattern=process_pattern,
+        runtime=runtime
     )
 
 def create_command_execution_tasks(
     container_names: List[str],
     command: str,
-    detach: bool = False
+    detach: bool = False,
+    runtime: str = "docker"
 ) -> List[ExecutionTask]:
     """创建命令执行任务列表"""
     mode = ExecutionMode.DETACH if detach else ExecutionMode.FOREGROUND
     return [
-        create_execution_task(name, command, mode)
+        create_execution_task(name, command, mode, runtime=runtime)
         for name in container_names
     ]
 
 def create_process_kill_tasks(
     container_names: List[str],
     process_pattern: str,
-    signal: Signal = Signal.TERM
+    signal: Signal = Signal.TERM,
+    runtime: str = "docker"
 ) -> List[ExecutionTask]:
     """创建进程终止任务列表"""
     return [
         create_execution_task(
-            name, "", ExecutionMode.KILL_PROCESS, signal, process_pattern
+            name, "", ExecutionMode.KILL_PROCESS, signal, process_pattern, runtime
         )
         for name in container_names
     ]
@@ -173,12 +178,20 @@ def create_process_kill_tasks(
 # 命令执行函数
 # ============================================================================
 
-def build_docker_command(task: ExecutionTask) -> str:
-    """构建Docker命令 - 纯函数"""
+def build_container_command(task: ExecutionTask) -> str:
+    """构建容器命令 - 纯函数"""
+    if task.runtime not in ("docker", "podman"):
+        raise ValueError(f"不支持的容器运行时: {task.runtime}. 支持的运行时: docker, podman")
+
     if task.mode == ExecutionMode.DETACH:
-        return f"docker exec -d {task.container_name} {task.command}"
+        return f"{task.runtime} exec -d {task.container_name} {task.command}"
     else:
-        return f"docker exec {task.container_name} {task.command}"
+        return f"{task.runtime} exec {task.container_name} {task.command}"
+
+# 保持向后兼容性的别名
+def build_docker_command(task: ExecutionTask) -> str:
+    """构建Docker命令 - 向后兼容性别名"""
+    return build_container_command(task)
 
 def create_execution_result(
     container_name: str,
@@ -238,13 +251,13 @@ async def execute_command_task(task: ExecutionTask) -> ExecutionResult:
     if task.mode == ExecutionMode.KILL_PROCESS:
         return await execute_kill_process_task(task)
 
-    cmd = build_docker_command(task)
+    cmd = build_container_command(task)
     return await execute_docker_command(cmd, task.container_name)
 
-async def find_process_pids(container_name: str, pattern: str) -> Result[List[str], str]:
+async def find_process_pids(container_name: str, pattern: str, runtime: str = "docker") -> Result[List[str], str]:
     """异步查找进程PID - 纯函数式处理"""
     try:
-        pgrep_cmd = f"docker exec {container_name} pgrep -f '{pattern}'"
+        pgrep_cmd = f"{runtime} exec {container_name} pgrep -f '{pattern}'"
 
         rc, out, _ = await run_shell_with_retry(pgrep_cmd, 30)
         if rc != 0 or not out:
@@ -257,7 +270,7 @@ async def find_process_pids(container_name: str, pattern: str) -> Result[List[st
     except Exception as e:
         return Result.error(f"查找进程失败: {str(e)}")
 
-async def kill_processes_by_pids(container_name: str, pids: List[str], signal: Signal) -> Result[str, str]:
+async def kill_processes_by_pids(container_name: str, pids: List[str], signal: Signal, runtime: str = "docker") -> Result[str, str]:
     """异步根据PID终止进程 - 纯函数式处理"""
     if not pids:
         return Result.ok("没有进程需要终止")
@@ -265,7 +278,7 @@ async def kill_processes_by_pids(container_name: str, pids: List[str], signal: S
     try:
         pids_str = ' '.join(pids)
         signal_name = signal.value
-        kill_cmd = f"docker exec {container_name} kill -{signal_name} {pids_str}"
+        kill_cmd = f"{runtime} exec {container_name} kill -{signal_name} {pids_str}"
 
         rc, _, err = await run_shell_with_retry(kill_cmd, 30)
         if rc == 0:
@@ -280,7 +293,7 @@ async def execute_kill_process_task(task: ExecutionTask) -> ExecutionResult:
     start_time = time.time()
 
     # 异步函数式管道：查找PID -> 终止进程 -> 创建结果
-    pids_result = await find_process_pids(task.container_name, task.process_pattern)
+    pids_result = await find_process_pids(task.container_name, task.process_pattern, task.runtime)
 
     if pids_result.is_error():
         duration = time.time() - start_time
@@ -290,7 +303,7 @@ async def execute_kill_process_task(task: ExecutionTask) -> ExecutionResult:
         )
 
     pids = pids_result.unwrap()
-    kill_result = await kill_processes_by_pids(task.container_name, pids, task.signal or Signal.TERM)
+    kill_result = await kill_processes_by_pids(task.container_name, pids, task.signal or Signal.TERM, task.runtime)
 
     duration = time.time() - start_time
 
@@ -459,16 +472,17 @@ def create_tasks_pipeline(
     command: str,
     detach: bool,
     process_pattern: Optional[str],
-    signal: Signal
+    signal: Signal,
+    runtime: str = "docker"
 ) -> List[ExecutionTask]:
     """创建任务管道 - 函数式组合"""
     container_names = list(generate_container_names(network_config.prefix, network_config.size))
     mode = determine_execution_mode(process_pattern, detach)
 
     if mode == ExecutionMode.KILL_PROCESS:
-        return create_process_kill_tasks(container_names, process_pattern, signal)
+        return create_process_kill_tasks(container_names, process_pattern, signal, runtime)
     else:
-        return create_command_execution_tasks(container_names, command, detach)
+        return create_command_execution_tasks(container_names, command, detach, runtime)
 
 def extract_execution_results(results: List[Result[ExecutionResult, str]]) -> List[ExecutionResult]:
     """提取执行结果 - 函数式映射"""
@@ -526,7 +540,7 @@ async def execute_on_torus_functional(
     """
 
     # 函数式管道：创建任务 -> 显示配置 -> 处理模式
-    tasks = create_tasks_pipeline(network_config, command, detach, process_pattern, signal)
+    tasks = create_tasks_pipeline(network_config, command, detach, process_pattern, signal, exec_config.runtime)
     mode = determine_execution_mode(process_pattern, detach)
 
     # 显示配置摘要 - 副作用隔离
@@ -564,6 +578,7 @@ def create_typer_app():
         signal: str = typer.Option("TERM", "--signal", help="发送的信号 (TERM, INT, KILL等)"),
         workers: int = typer.Option(4, "--workers", help="并发工作线程数"),
         timeout: int = typer.Option(30, "--timeout", help="命令超时时间(秒)"),
+        runtime: str = typer.Option("docker", "--runtime", help="容器运行时 (docker/podman)"),
         verbose: bool = typer.Option(False, "--verbose", help="显示详细信息")
     ):
         """在Torus拓扑上批量执行命令或管理进程"""
@@ -584,9 +599,14 @@ def create_typer_app():
                 log_error(f"无效的信号: {signal}. 可用信号: {', '.join([s.value for s in Signal])}")
                 raise typer.Exit(1)
 
+            # 验证容器运行时
+            if runtime not in ("docker", "podman"):
+                log_error(f"无效的容器运行时: {runtime}. 支持的运行时: docker, podman")
+                raise typer.Exit(1)
+
             # 创建配置对象
             network_config = NetworkConfig(prefix=prefix, size=size, topology_type="torus")
-            exec_config = ExecutionConfig(max_workers=workers, timeout=timeout, verbose=verbose)
+            exec_config = ExecutionConfig(max_workers=workers, timeout=timeout, verbose=verbose, runtime=runtime)
 
             # 执行主要逻辑 - 异步调用（anyio）
             result = anyio.run(execute_on_torus_functional,

@@ -54,10 +54,37 @@ EOF
 
 sudo systemctl restart docker
 
+
+wget 
+
 git clone https://xget.xi-xu.me/gh/chocolatedesue/network-analyze-tool.git --depth=1
 
 cd network-analyze-tool && uv sync && bash experiment_utils/setup/tn2.sh
 
 
+uv run -m topo_gen torus 25 --dummy-gen ospf6d --yes --disable-logging
+
+uv run -m topo_gen torus 30 --dummy-gen ospf6d --yes --disable-logging
+
+
+uv run -m topo_gen torus 20 --dummy-gen ospf6d --yes --disable-logging
+
 
 time clab deploy -t ospfv3_torus25x25/ --reconfigure --runtime podman
+
+sudo usermod -aG clab_admins $USER && newgrp clab_admins
+
+
+
+
+uv run experiment_utils/execute_in_batches.py clab-ospfv3-torus25x25 \
+"/usr/lib/frr/frr-reload.py  --reload --daemon ospf6d /etc/frr/ospf6d-bak.conf" \
+-r podman --percent 25 --interval 10 --detach --yes
+
+clab destroy -t ospfv3_torus25x25
+
+sudo podman exec -it  clab-ospfv3-torus25x25-router_03_02 \
+ping 2001:db8:1000:0:3:2:0:1
+
+sudo podman exec -it  clab-ospfv3-torus25x25-router_24_24 \
+ping 2001:db8:1000:0:3:2:0:1

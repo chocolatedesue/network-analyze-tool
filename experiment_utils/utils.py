@@ -80,6 +80,7 @@ class ExecutionConfig:
     max_workers: int = 4
     timeout: int = 30
     verbose: bool = False
+    runtime: str = "docker"  # 容器运行时: docker 或 podman
 
 
 # 简单彩色日志
@@ -166,6 +167,47 @@ def generate_container_names(prefix: str, size: int) -> Iterator[str]:
     for row in range(size):
         for col in range(size):
             yield create_container_name(prefix, row, col)
+
+
+# 容器运行时命令构建
+
+def build_container_exec_command(
+    container_name: str,
+    command: str,
+    runtime: str = "docker",
+    detach: bool = False
+) -> str:
+    """构建容器执行命令
+
+    Args:
+        container_name: 容器名称
+        command: 要执行的命令
+        runtime: 容器运行时 (docker 或 podman)
+        detach: 是否后台执行
+
+    Returns:
+        完整的容器执行命令字符串
+
+    Raises:
+        ValueError: 当运行时不支持时
+    """
+    if runtime not in ("docker", "podman"):
+        raise ValueError(f"不支持的容器运行时: {runtime}. 支持的运行时: docker, podman")
+
+    detach_flag = "-d " if detach else ""
+    return f"{runtime} exec {detach_flag}{container_name} {command}"
+
+
+def validate_runtime(runtime: str) -> bool:
+    """验证容器运行时是否支持
+
+    Args:
+        runtime: 容器运行时名称
+
+    Returns:
+        True 如果支持，False 如果不支持
+    """
+    return runtime in ("docker", "podman")
 
 
 # anyio 子进程执行帮助
