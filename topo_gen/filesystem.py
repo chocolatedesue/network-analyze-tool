@@ -244,12 +244,12 @@ class FileSystemManager:
         # 生成管理网络配置
         mgmt_config = self._generate_mgmt_network(config.total_routers)
 
-        # 计算 CPU 亲和性范围：0 ~ (cpus - 1)
+        # 计算 CPU 亲和性范围：0 ~ (cpus - 2)
         try:
             total_cpus = os.cpu_count() or 1
         except Exception:
-            total_cpus = 1
-        cpu_set_range = f"0-{max(0, total_cpus - 1)}"
+            total_cpus = 1      
+        cpu_set_range = f"0-{max(0, total_cpus - 2)}"
 
         # 生成完整配置
         clab_config = {

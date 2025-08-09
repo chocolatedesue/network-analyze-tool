@@ -146,16 +146,25 @@ async def run_batches(
             example = batch[0] if batch else ""
             log_info(f"  would exec on {example}: {cmd}")
         else:
-            results: List[bool] = []
+            results: List[Tuple[str, Result[None, str]]] = []
             semaphore = anyio.Semaphore(max(1, parallel))
             async with anyio.create_task_group() as tg:
                 async def worker(container_name: str):
                     async with semaphore:
                         res = await exec_in_container(runtime, container_name, cmd, detach)
-                        results.append(res.is_ok())
+                        results.append((container_name, res))
                 for n in batch:
                     tg.start_soon(worker, n)
-            failures = sum(1 for ok in results if not ok)
+
+            # 检查结果，在非detach模式下遇到错误立即退出
+            failures = 0
+            for container_name, res in results:
+                if res.is_error():
+                    failures += 1
+                    log_error(f"容器 {container_name} 执行失败: {res._error}")
+                    if not detach:
+                        return Result.error(f"容器 {container_name} 执行失败，非detach模式下退出: {res._error}")
+
             log_info(f"[Batch {batch_no}] executed={len(batch)} failures={failures}")
 
         index = end
@@ -174,7 +183,7 @@ def main(
     interval: int = typer.Option(10, "--interval", "-i", min=0, help="批次间隔(秒)"),
     runtime: str = typer.Option("docker", "--runtime", "-r", help="容器运行时 (docker/podman)"),
     parallel: int = typer.Option(1, "--parallel", help="批内并发数，默认 1 顺序执行"),
-    detach: bool = typer.Option(True, "--detach", "-d", help="在容器内后台执行（默认开启）"),
+    detach: bool = typer.Option(False, "--detach", "-d", help="在容器内后台执行"),
     dry_run: bool = typer.Option(False, "--dry-run", help="仅打印不执行"),
     size: Optional[int] = typer.Option(None, "--size", help="方阵尺寸 N (N x N)"),
     dims: Optional[str] = typer.Option(None, "--dims", help="矩阵尺寸 WxH，如 5x5"),
