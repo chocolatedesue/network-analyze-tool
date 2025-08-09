@@ -360,6 +360,9 @@ class TopologyConfig(BaseConfig):
     ospf6d_off: bool = Field(default=False, description="仅关闭 OSPF6 守护进程")
     bfdd_off: bool = Field(default=False, description="仅关闭 BFD 守护进程")
 
+    # Dummy 生成控制（将真实配置保存为 -bak.conf，并生成空配置作为主文件）
+    dummy_gen_protocols: Set[str] = Field(default_factory=set, description="需要生成空配置的协议集合，支持: ospf6d/bgpd/bfdd")
+
     # 特殊拓扑配置
     special_config: Optional[SpecialTopologyConfig] = Field(default=None, description="特殊拓扑配置")
     

@@ -32,70 +32,41 @@ import anyio
 import typer
 from rich.table import Table
 from rich.console import Console
-from rich.progress import Progress
+
+# 复用公共工具（支持脚本直接运行与包运行）
+try:
+    from experiment_utils.utils import (
+        Result,
+        ExecutionConfig,
+        log_info,
+        log_error,
+        log_success,
+        log_warning,
+        run_shell_with_retry,
+        ProgressReporter,
+        create_container_name,
+    )
+except ModuleNotFoundError:
+    import sys as _sys
+    from pathlib import Path as _Path
+    _sys.path.insert(0, str(_Path(__file__).resolve().parent.parent))
+    from experiment_utils.utils import (
+        Result,
+        ExecutionConfig,
+        log_info,
+        log_error,
+        log_success,
+        log_warning,
+        run_shell_with_retry,
+        ProgressReporter,
+        create_container_name,
+    )
 
 console = Console()
 
 # ============================================================================
 # 工具类型和函数
 # ============================================================================
-
-@dataclass(frozen=True)
-class Result:
-    """简化的 Result 类型，用于错误处理"""
-    _value: Optional[any] = None
-    _error: Optional[str] = None
-
-    @classmethod
-    def ok(cls, value):
-        return cls(_value=value)
-
-    @classmethod
-    def error(cls, error: str):
-        return cls(_error=error)
-
-    def is_ok(self) -> bool:
-        return self._error is None
-
-    def is_error(self) -> bool:
-        return self._error is not None
-
-    def unwrap(self):
-        if self.is_error():
-            raise ValueError(f"Result is error: {self._error}")
-        return self._value
-
-    def map(self, func):
-        if self.is_error():
-            return self
-        try:
-            return Result.ok(func(self._value))
-        except Exception as e:
-            return Result.error(str(e))
-
-    def and_then(self, func):
-        if self.is_error():
-            return self
-        try:
-            return func(self._value)
-        except Exception as e:
-            return Result.error(str(e))
-
-def log_info(message: str):
-    """信息日志"""
-    console.print(f"[blue]ℹ[/blue] {message}")
-
-def log_error(message: str):
-    """错误日志"""
-    console.print(f"[red]✗[/red] {message}")
-
-def log_success(message: str):
-    """成功日志"""
-    console.print(f"[green]✓[/green] {message}")
-
-def log_warning(message: str):
-    """警告日志"""
-    console.print(f"[yellow]⚠[/yellow] {message}")
 
 # ============================================================================
 # 核心数据类型
@@ -411,46 +382,22 @@ class ExecutionConfig:
 async def execute_injection_command(command: InjectionCommand, timeout: int = 30) -> InjectionResult:
     """异步执行故障注入命令"""
     start_time = time.time()
-
     try:
-        # 使用 anyio 的子进程执行 - 需要将命令分解为列表
-        # 对于 shell 命令，我们使用 sh -c
-        cmd_list = ["sh", "-c", command.command]
-
-        with anyio.move_on_after(timeout):
-            result = await anyio.run_process(
-                cmd_list,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
-            )
-
-            duration = time.time() - start_time
-
-            return InjectionResult(
-                command=command,
-                success=result.returncode == 0,
-                output=result.stdout.decode().strip() if result.stdout else "",
-                error=result.stderr.decode().strip() if result.stderr and result.returncode != 0 else None,
-                duration=duration
-            )
-
-        # 如果超时
+        rc, out, err = await run_shell_with_retry(command.command, timeout)
         duration = time.time() - start_time
         return InjectionResult(
             command=command,
-            success=False,
-            error="命令超时",
-            duration=duration
+            success=(rc == 0),
+            output=out,
+            error=(err if err and rc != 0 else None),
+            duration=duration,
         )
-
+    except TimeoutError:
+        duration = time.time() - start_time
+        return InjectionResult(command=command, success=False, error="命令超时", duration=duration)
     except Exception as e:
         duration = time.time() - start_time
-        return InjectionResult(
-            command=command,
-            success=False,
-            error=f"执行错误: {str(e)}",
-            duration=duration
-        )
+        return InjectionResult(command=command, success=False, error=f"执行错误: {str(e)}", duration=duration)
 
 async def execute_commands_batch(
     commands: List[InjectionCommand],
@@ -466,19 +413,18 @@ async def execute_commands_batch(
     semaphore = anyio.Semaphore(exec_config.max_workers)
 
     # 显示进度
-    with Progress() as progress:
-        task_id = progress.add_task("执行故障注入", total=len(commands))
-
+    with ProgressReporter() as progress:
+        if progress.use_rich:
+            task_id = progress.create_task("执行故障注入", len(commands))
         results = []
         async with anyio.create_task_group() as tg:
             async def run_command(cmd):
                 result = await execute_with_semaphore(semaphore, cmd)
                 results.append(result)
-                progress.update(task_id, advance=1)
-
+                if progress.use_rich:
+                    progress.update_task(task_id, 1)
             for command in commands:
                 tg.start_soon(run_command, command)
-
     return results
 
 # ============================================================================

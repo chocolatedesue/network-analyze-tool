@@ -168,6 +168,7 @@ def generate_grid(
     bgpd_off: bool = typer.Option(False, "--bgpd-off", help="仅关闭 BGP 守护进程"),
     ospf6d_off: bool = typer.Option(False, "--ospf6d-off", help="仅关闭 OSPF6 守护进程"),
     bfdd_off: bool = typer.Option(False, "--bfdd-off", help="仅关闭 BFD 守护进程"),
+    dummy_gen: List[str] = typer.Option([], "--dummy-gen", help="为指定协议生成空配置并将真实配置保存为 -bak.conf；支持: ospf6d,bgpd,bfdd；可多次传或用逗号分隔"),
     yes: bool = typer.Option(False, "--yes", "-y", help="跳过确认")
 ):
     """生成Grid拓扑"""
@@ -188,7 +189,8 @@ def generate_grid(
         daemons_off=daemons_off,
         bgpd_off=bgpd_off,
         ospf6d_off=ospf6d_off,
-        bfdd_off=bfdd_off
+        bfdd_off=bfdd_off,
+        dummy_gen_protocols=set(sum([s.lower().split(',') for s in dummy_gen], []))
     )
     
     # 验证配置
@@ -249,6 +251,7 @@ def generate_torus(
     bgpd_off: bool = typer.Option(False, "--bgpd-off", help="仅关闭 BGP 守护进程"),
     ospf6d_off: bool = typer.Option(False, "--ospf6d-off", help="仅关闭 OSPF6 守护进程"),
     bfdd_off: bool = typer.Option(False, "--bfdd-off", help="仅关闭 BFD 守护进程"),
+    dummy_gen: List[str] = typer.Option([], "--dummy-gen", help="为指定协议生成空配置并将真实配置保存为 -bak.conf；支持: ospf6d,bgpd,bfdd；可多次传或用逗号分隔"),
     yes: bool = typer.Option(False, "--yes", "-y", help="跳过确认")
 ):
     """生成Torus拓扑"""
@@ -269,7 +272,8 @@ def generate_torus(
         daemons_off=daemons_off,
         bgpd_off=bgpd_off,
         ospf6d_off=ospf6d_off,
-        bfdd_off=bfdd_off
+        bfdd_off=bfdd_off,
+        dummy_gen_protocols=set(sum([s.lower().split(',') for s in dummy_gen], []))
     )
     
     # 验证配置
@@ -329,6 +333,7 @@ def generate_special(
     bgpd_off: bool = typer.Option(False, "--bgpd-off", help="仅关闭 BGP 守护进程"),
     ospf6d_off: bool = typer.Option(False, "--ospf6d-off", help="仅关闭 OSPF6 守护进程"),
     bfdd_off: bool = typer.Option(False, "--bfdd-off", help="仅关闭 BFD 守护进程"),
+    dummy_gen: List[str] = typer.Option([], "--dummy-gen", help="为指定协议生成空配置并将真实配置保存为 -bak.conf；支持: ospf6d,bgpd,bfdd；可多次传或用逗号分隔"),
     yes: bool = typer.Option(False, "--yes", "-y", help="跳过确认")
 ):
     """生成Special拓扑（6x6 DM示例）"""
@@ -362,6 +367,7 @@ def generate_special(
         bgpd_off=bgpd_off,
         ospf6d_off=ospf6d_off,
         bfdd_off=bfdd_off,
+        dummy_gen_protocols=set(sum([s.lower().split(',') for s in dummy_gen], [])),
         special_config=special_config
     )
     

@@ -160,10 +160,29 @@ class FileSystemManager:
             generator = ConfigGeneratorFactory.create(config_type)
             content = generator.generate(router, config)
 
-            if content:  # 只写入非空内容
-                file_path = conf_path / config_type
-                async with await file_path.open('w') as f:
-                    await f.write(content)
+            # 处理 dummy 生成：如果配置的协议在 dummy 集合中，则将真实内容写到 -bak.conf，并生成空主配置
+            protocol_name = config_type  # e.g., "ospf6d.conf"
+            is_dummy = False
+            if hasattr(config, 'dummy_gen_protocols') and isinstance(config.dummy_gen_protocols, set):
+                # 支持传入如 'ospf6d', 'bgpd', 'bfdd'
+                base = protocol_name.split('.')[0]
+                if base in config.dummy_gen_protocols:
+                    is_dummy = True
+
+            if content:
+                if is_dummy:
+                    # 写入备份配置
+                    bak_path = conf_path / f"{protocol_name.replace('.conf', '')}-bak.conf"
+                    async with await bak_path.open('w') as f:
+                        await f.write(content)
+                    # 写入空主配置
+                    file_path = conf_path / protocol_name
+                    async with await file_path.open('w') as f:
+                        await f.write("")
+                else:
+                    file_path = conf_path / config_type
+                    async with await file_path.open('w') as f:
+                        await f.write(content)
     
     async def write_containerlab_yaml(
         self, 
