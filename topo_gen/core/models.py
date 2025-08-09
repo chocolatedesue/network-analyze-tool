@@ -51,7 +51,7 @@ class OSPFConfig(BaseConfig):
     """OSPF配置 - 增强版"""
     hello_interval: int = Field(default=2, ge=1, le=65535, description="Hello间隔(秒)")
     dead_interval: int = Field(default=10, ge=1, le=65535, description="Dead间隔(秒)")
-    spf_delay: int = Field(default=20, ge=1, le=65535, description="SPF延迟(毫秒)")
+    spf_delay: int = Field(default=50, ge=1, le=65535, description="SPF延迟(毫秒)")
     area_id: AreaID = Field(default="0.0.0.0", description="区域ID")
     cost: Optional[int] = Field(default=None, ge=1, le=65535, description="接口开销")
     priority: Optional[int] = Field(default=None, ge=0, le=255, description="路由器优先级")

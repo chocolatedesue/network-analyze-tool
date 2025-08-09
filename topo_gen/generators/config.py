@@ -186,7 +186,7 @@ def create_ospf_section(
         "router ospf6",
         f" ospf6 router-id {router_info.router_id}",
         # f" area {router_info.area_id}",
-        " timers throttle spf 20 30 100",
+        f" timers throttle spf {ospf_config.spf_delay} {ospf_config.spf_delay * 2} {ospf_config.spf_delay * 20}",
         " timers lsa min-arrival 0",
         " maximum-paths 1",
     ])
