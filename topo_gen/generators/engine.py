@@ -478,7 +478,10 @@ class ModernTopologyGenerator:
     
     def _get_config_types(self, config: TopologyConfig) -> List[str]:
         """获取需要生成的配置类型"""
-        config_types = ["daemons", "zebra.conf", "ospf6d.conf", "staticd.conf"]
+        config_types = ["daemons", "zebra.conf", "staticd.conf"]
+
+        if config.ospf_config is not None:
+            config_types.append("ospf6d.conf")
 
         if config.bgp_config is not None:
             config_types.append("bgpd.conf")

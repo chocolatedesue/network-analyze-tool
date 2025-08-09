@@ -347,13 +347,19 @@ class TopologyConfig(BaseConfig):
     topology_type: TopologyType = Field(description="拓扑类型")
     multi_area: bool = Field(default=False, description="是否多区域")
     area_size: Optional[int] = Field(default=None, ge=2, description="区域大小")
-    
+
     # 协议配置
     network_config: NetworkConfig = Field(default_factory=NetworkConfig, description="网络配置")
-    ospf_config: OSPFConfig = Field(default_factory=OSPFConfig, description="OSPF配置")
+    ospf_config: Optional[OSPFConfig] = Field(default_factory=OSPFConfig, description="OSPF配置")
     bgp_config: Optional[BGPConfig] = Field(default=None, description="BGP配置")
     bfd_config: BFDConfig = Field(default_factory=BFDConfig, description="BFD配置")
-    
+
+    # 守护进程控制
+    daemons_off: bool = Field(default=False, description="仅关闭守护进程但仍生成对应配置文件")
+    bgpd_off: bool = Field(default=False, description="仅关闭 BGP 守护进程")
+    ospf6d_off: bool = Field(default=False, description="仅关闭 OSPF6 守护进程")
+    bfdd_off: bool = Field(default=False, description="仅关闭 BFD 守护进程")
+
     # 特殊拓扑配置
     special_config: Optional[SpecialTopologyConfig] = Field(default=None, description="特殊拓扑配置")
     

@@ -109,11 +109,14 @@ class FileSystemManager:
     ) -> Result:
         """写入配置文件"""
         try:
-            config_types = ["daemons", "zebra.conf", "ospf6d.conf"]
-            
+            config_types = ["daemons", "zebra.conf"]
+
+            if config.ospf_config is not None:
+                config_types.append("ospf6d.conf")
+
             if config.enable_bgp:
                 config_types.append("bgpd.conf")
-            
+
             if config.enable_bfd:
                 config_types.append("bfdd.conf")
             
@@ -139,10 +142,24 @@ class FileSystemManager:
         if router.name in interface_mappings:
             router.interfaces.update(interface_mappings[router.name])
         
+        # 在写入前，清理与当前启用协议不一致的旧配置文件
+        # 仅处理我们生成的协议配置文件，避免误删其他文件
+        stale_candidates = {"ospf6d.conf", "bgpd.conf", "bfdd.conf"}
+        allowed_now = set(config_types)
+        for fname in stale_candidates:
+            if fname not in allowed_now:
+                file_path = conf_path / fname
+                try:
+                    if await file_path.exists():
+                        await file_path.unlink()
+                except Exception:
+                    # 清理失败不影响后续写入
+                    pass
+
         for config_type in config_types:
             generator = ConfigGeneratorFactory.create(config_type)
             content = generator.generate(router, config)
-            
+
             if content:  # 只写入非空内容
                 file_path = conf_path / config_type
                 async with await file_path.open('w') as f:

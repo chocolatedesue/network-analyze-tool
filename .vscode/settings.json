@@ -4,5 +4,8 @@
         "go": "/home/ccds/.local/share/mise/shims/go",
         "gopls": "/home/ccds/.local/share/mise/shims/gopls"
     },
-    "cmake.sourceDirectory": "/home/ccds/work/network-analyze-tool/converge_analyze_cpp"
+    "cmake.sourceDirectory": "/home/ccds/work/network-analyze-tool/converge_analyze_cpp",
+    "debug.javascript.defaultRuntimeExecutable": {
+        "pwa-node": "/home/ccds/.local/share/mise/shims/node"
+    }
 }

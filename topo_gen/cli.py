@@ -158,9 +158,16 @@ def generate_grid(
     multi_area: bool = typer.Option(False, "--multi-area", help="启用多区域"),
     area_size: Optional[int] = typer.Option(None, "--area-size", help="区域大小"),
     enable_bfd: bool = typer.Option(False, "--enable-bfd", help="启用BFD"),
+    enable_bgp: bool = typer.Option(False, "--enable-bgp", help="启用BGP"),
+    enable_ospf6: bool = typer.Option(True, "--enable-ospf6/--disable-ospf6", help="启用OSPF6"),
+    bgp_as: int = typer.Option(65000, "--bgp-as", help="BGP AS号", callback=validate_as_number),
     hello_interval: int = typer.Option(2, "--hello-interval", help="OSPF Hello间隔"),
     dead_interval: int = typer.Option(10, "--dead-interval", help="OSPF Dead间隔"),
     spf_delay: int = typer.Option(20, "--spf-delay", help="SPF延迟"),
+    daemons_off: bool = typer.Option(False, "--daemons-off", help="仅关闭守护进程但仍生成配置文件"),
+    bgpd_off: bool = typer.Option(False, "--bgpd-off", help="仅关闭 BGP 守护进程"),
+    ospf6d_off: bool = typer.Option(False, "--ospf6d-off", help="仅关闭 OSPF6 守护进程"),
+    bfdd_off: bool = typer.Option(False, "--bfdd-off", help="仅关闭 BFD 守护进程"),
     yes: bool = typer.Option(False, "--yes", "-y", help="跳过确认")
 ):
     """生成Grid拓扑"""
@@ -175,8 +182,13 @@ def generate_grid(
             hello_interval=hello_interval,
             dead_interval=dead_interval,
             spf_delay=spf_delay
-        ),
-        bfd_config=BFDConfig(enabled=enable_bfd)
+        ) if enable_ospf6 else None,
+        bgp_config=BGPConfig(as_number=bgp_as) if enable_bgp else None,
+        bfd_config=BFDConfig(enabled=enable_bfd),
+        daemons_off=daemons_off,
+        bgpd_off=bgpd_off,
+        ospf6d_off=ospf6d_off,
+        bfdd_off=bfdd_off
     )
     
     # 验证配置
@@ -227,9 +239,16 @@ def generate_torus(
     multi_area: bool = typer.Option(False, "--multi-area", help="启用多区域"),
     area_size: Optional[int] = typer.Option(None, "--area-size", help="区域大小"),
     enable_bfd: bool = typer.Option(False, "--enable-bfd", help="启用BFD"),
+    enable_bgp: bool = typer.Option(False, "--enable-bgp", help="启用BGP"),
+    enable_ospf6: bool = typer.Option(True, "--enable-ospf6/--disable-ospf6", help="启用OSPF6"),
+    bgp_as: int = typer.Option(65000, "--bgp-as", help="BGP AS号", callback=validate_as_number),
     hello_interval: int = typer.Option(2, "--hello-interval", help="OSPF Hello间隔"),
     dead_interval: int = typer.Option(10, "--dead-interval", help="OSPF Dead间隔"),
     spf_delay: int = typer.Option(20, "--spf-delay", help="SPF延迟"),
+    daemons_off: bool = typer.Option(False, "--daemons-off", help="仅关闭守护进程但仍生成配置文件"),
+    bgpd_off: bool = typer.Option(False, "--bgpd-off", help="仅关闭 BGP 守护进程"),
+    ospf6d_off: bool = typer.Option(False, "--ospf6d-off", help="仅关闭 OSPF6 守护进程"),
+    bfdd_off: bool = typer.Option(False, "--bfdd-off", help="仅关闭 BFD 守护进程"),
     yes: bool = typer.Option(False, "--yes", "-y", help="跳过确认")
 ):
     """生成Torus拓扑"""
@@ -244,8 +263,13 @@ def generate_torus(
             hello_interval=hello_interval,
             dead_interval=dead_interval,
             spf_delay=spf_delay
-        ),
-        bfd_config=BFDConfig(enabled=enable_bfd)
+        ) if enable_ospf6 else None,
+        bgp_config=BGPConfig(as_number=bgp_as) if enable_bgp else None,
+        bfd_config=BFDConfig(enabled=enable_bfd),
+        daemons_off=daemons_off,
+        bgpd_off=bgpd_off,
+        ospf6d_off=ospf6d_off,
+        bfdd_off=bfdd_off
     )
     
     # 验证配置
@@ -294,11 +318,17 @@ def generate_torus(
 def generate_special(
     base_topology: TopologyType = typer.Option(TopologyType.TORUS, "--base-topology", help="基础拓扑类型"),
     include_base: bool = typer.Option(True, "--include-base/--no-include-base", help="包含基础连接"),
+    enable_bgp: bool = typer.Option(False, "--enable-bgp", help="启用BGP"),
+    enable_ospf6: bool = typer.Option(True, "--enable-ospf6/--disable-ospf6", help="启用OSPF6"),
     bgp_as: int = typer.Option(65000, "--bgp-as", help="BGP基础AS号", callback=validate_as_number),
     hello_interval: int = typer.Option(2, "--hello-interval", help="OSPF Hello间隔"),
     dead_interval: int = typer.Option(10, "--dead-interval", help="OSPF Dead间隔"),
     spf_delay: int = typer.Option(20, "--spf-delay", help="SPF延迟"),
     enable_bfd: bool = typer.Option(False, "--enable-bfd", help="启用BFD"),
+    daemons_off: bool = typer.Option(False, "--daemons-off", help="仅关闭守护进程但仍生成配置文件"),
+    bgpd_off: bool = typer.Option(False, "--bgpd-off", help="仅关闭 BGP 守护进程"),
+    ospf6d_off: bool = typer.Option(False, "--ospf6d-off", help="仅关闭 OSPF6 守护进程"),
+    bfdd_off: bool = typer.Option(False, "--bfdd-off", help="仅关闭 BFD 守护进程"),
     yes: bool = typer.Option(False, "--yes", "-y", help="跳过确认")
 ):
     """生成Special拓扑（6x6 DM示例）"""
@@ -321,14 +351,17 @@ def generate_special(
         size=6,
         topology_type=TopologyType.SPECIAL,
         multi_area=False,
-        enable_bgp=True,
         ospf_config=OSPFConfig(
             hello_interval=hello_interval,
             dead_interval=dead_interval,
             spf_delay=spf_delay
-        ),
-        bgp_config=BGPConfig(as_number=bgp_as),
+        ) if enable_ospf6 else None,
+        bgp_config=BGPConfig(as_number=bgp_as) if enable_bgp else None,
         bfd_config=BFDConfig(enabled=enable_bfd),
+        daemons_off=daemons_off,
+        bgpd_off=bgpd_off,
+        ospf6d_off=ospf6d_off,
+        bfdd_off=bfdd_off,
         special_config=special_config
     )
     

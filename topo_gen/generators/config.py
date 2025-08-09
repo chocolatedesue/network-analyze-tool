@@ -264,12 +264,17 @@ def create_bgp_section(
         # IPv6地址族配置
         from ..core.types import extract_ipv6_address, ensure_ipv6_prefix
         loopback_with_prefix = ensure_ipv6_prefix(str(router_info.loopback_ipv6), 128)
-        content.extend([
+        address_family_config = [
             " address-family ipv6 unicast",
             f"  network {loopback_with_prefix}",
-            "  redistribute ospf6",
-            "  redistribute connected",
-        ])
+        ]
+
+        # 只有在OSPF6启用时才重分发OSPF6路由
+        if topology_config.ospf_config is not None:
+            address_family_config.append("  redistribute ospf6")
+
+        address_family_config.append("  redistribute connected")
+        content.extend(address_family_config)
 
         # 激活邻居
         for router in all_routers:
@@ -385,11 +390,15 @@ def _create_special_bgp_neighbors(
             neighbor_ipv6 = extract_ipv6_address(str(router.loopback_ipv6))
             neighbors.append(f"  neighbor {neighbor_ipv6} activate")
 
-    neighbors.extend([
-        "  redistribute ospf6",
+    # 只有在OSPF6启用时才重分发OSPF6路由
+    redistribute_config = []
+    if topology_config.ospf_config is not None:
+        redistribute_config.append("  redistribute ospf6")
+    redistribute_config.extend([
         "  redistribute connected",
         " exit-address-family"
     ])
+    neighbors.extend(redistribute_config)
 
     return neighbors
 
@@ -454,16 +463,35 @@ class DaemonsConfigGenerator:
             topo_type in ["grid", "torus"]
         )
 
+        # 调试信息
+        if router_info.coordinate.row == 0 and router_info.coordinate.col == 0:
+            print(f"DEBUG: config.enable_bgp={config.enable_bgp}, is_gateway={is_gateway}, topo_type={topo_type}")
+            print(f"DEBUG: enable_bgp={enable_bgp}")
+            print(f"DEBUG: config.ospf_config is not None={config.ospf_config is not None}")
+            print(f"DEBUG: enable_ospf6={config.ospf_config is not None}")
 
-        
-        # 判断是否启用BFD
+        # 判断是否启用BFD和OSPF6
         enable_bfd = config.enable_bfd
-        
+        enable_ospf6 = config.ospf_config is not None
+
+        # 当 daemons_off=True 时，仅在 daemons 文件中关闭相应守护进程，但仍允许生成对应配置文件
+        if getattr(config, 'daemons_off', False):
+            enable_bgp = False
+            enable_ospf6 = False
+            enable_bfd = False
+        # 细粒度关闭：仅关闭某一类守护进程
+        if getattr(config, 'bgpd_off', False):
+            enable_bgp = False
+        if getattr(config, 'ospf6d_off', False):
+            enable_ospf6 = False
+        if getattr(config, 'bfdd_off', False):
+            enable_bfd = False
+
         content = [
             "zebra=yes",
             f"bgpd={'yes' if enable_bgp else 'no'}",
             "ospfd=no",
-            "ospf6d=yes",
+            f"ospf6d={'yes' if enable_ospf6 else 'no'}",
             "ripd=no",
             "ripngd=no",
             "isisd=no",
@@ -525,6 +553,10 @@ class OSPF6ConfigGenerator:
     @staticmethod
     def generate(router_info: RouterInfo, config: TopologyConfig) -> str:
         """生成ospf6d配置"""
+        # 如果OSPF6被禁用，返回空配置
+        if not config.ospf_config:
+            return ""
+
         builder = ConfigBuilder()
 
         # 添加头部
