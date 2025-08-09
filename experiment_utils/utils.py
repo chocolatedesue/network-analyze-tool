@@ -122,6 +122,19 @@ class ProgressReporter:
             self.use_rich = False
         return self
 
+    def __exit__(self, exc_type, exc, tb):
+        if self.progress:
+            self.progress.stop()
+
+    def create_task(self, description: str, total: int):
+        if self.progress:
+            return self.progress.add_task(description, total=total)
+        return 0
+
+    def update_task(self, task_id: int, advance: int = 1):
+        if self.progress:
+            self.progress.update(task_id, advance=advance)
+
 # 带重试的 shell 执行
 class TransientShellError(Exception):
     pass
@@ -141,19 +154,6 @@ async def run_shell_with_retry(cmd: str, timeout: int) -> Tuple[int, str, str]:
     if rc != 0 and err:
         raise TransientShellError(err)
     return rc, out, err
-
-    def __exit__(self, exc_type, exc, tb):
-        if self.progress:
-            self.progress.stop()
-
-    def create_task(self, description: str, total: int):
-        if self.progress:
-            return self.progress.add_task(description, total=total)
-        return 0
-
-    def update_task(self, task_id: int, advance: int = 1):
-        if self.progress:
-            self.progress.update(task_id, advance=advance)
 
 
 # 容器命名与生成辅助

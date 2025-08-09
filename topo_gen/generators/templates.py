@@ -131,7 +131,7 @@ class VtyshTemplateGenerator(BaseTemplateGenerator):
         return f"""!
 ! Vtysh configuration for {config.hostname}
 !
-service integrated-vtysh-config
+no service integrated-vtysh-config
 !
 username root nopassword
 !
@@ -143,9 +143,9 @@ class TemplateGeneratorFactory:
     
     _generators: Dict[str, type] = {
         "zebra.conf": ZebraTemplateGenerator,
-        # "staticd.conf": StaticTemplateGenerator,
-        # "mgmtd.conf": MgmtTemplateGenerator,
-        # "vtysh.conf": VtyshTemplateGenerator,
+        "staticd.conf": StaticTemplateGenerator,
+        "mgmtd.conf": MgmtTemplateGenerator,
+        "vtysh.conf": VtyshTemplateGenerator,
     }
     
     @classmethod

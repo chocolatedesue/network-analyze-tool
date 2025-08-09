@@ -125,9 +125,7 @@ class ProcessInfo:
 # 纯函数 - 任务生成逻辑
 # ============================================================================
 
-def create_container_name(prefix: str, row: int, col: int) -> str:
-    """创建容器名称"""
-    return f"{prefix}-router_{row:02d}_{col:02d}"
+
 
 
 def create_execution_task(

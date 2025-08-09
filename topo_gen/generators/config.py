@@ -185,10 +185,10 @@ def create_ospf_section(
     content.extend([
         "router ospf6",
         f" ospf6 router-id {router_info.router_id}",
-        f" area {router_info.area_id}",
+        # f" area {router_info.area_id}",
         " timers throttle spf 20 30 100",
         " timers lsa min-arrival 0",
-        " max-multipath 1",
+        " maximum-paths 1",
     ])
 
     return ConfigSection("OSPF6 Configuration", content)

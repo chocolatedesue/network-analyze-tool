@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import random
 import re
-import subprocess
 import time
 from dataclasses import dataclass
 from enum import Enum
@@ -317,9 +316,7 @@ def get_interface_and_delay(direction: Tuple[int, int], injection_config: Inject
 
     return interface_map.get(direction, ("eth1", f"{injection_config.vertical_delay * 2}ms"))
 
-def create_container_name(prefix: str, coord: Coordinate) -> str:
-    """创建容器名称"""
-    return f"{prefix}-router_{coord.x:02d}_{coord.y:02d}"
+
 
 def generate_injection_commands(
     link: Link,
@@ -341,8 +338,8 @@ def generate_injection_commands(
     interface2, delay2 = get_interface_and_delay(reverse_direction, injection_config)
     
     # 创建容器名称
-    container1 = create_container_name(prefix, link.node1)
-    container2 = create_container_name(prefix, link.node2)
+    container1 = create_container_name(prefix, link.node1.x, link.node1.y)
+    container2 = create_container_name(prefix, link.node2.x, link.node2.y)
     
     if injection_type == InjectionType.NETEM:
         if action == LinkAction.DOWN:
@@ -372,12 +369,7 @@ def generate_injection_commands(
 # 命令执行函数 - 使用 anyio 异步处理
 # ============================================================================
 
-@dataclass(frozen=True)
-class ExecutionConfig:
-    """执行配置"""
-    max_workers: int = 4
-    timeout: int = 30
-    verbose: bool = False
+
 
 async def execute_injection_command(command: InjectionCommand, timeout: int = 30) -> InjectionResult:
     """异步执行故障注入命令"""
