@@ -9,9 +9,6 @@ from .config import (
     ConfigGeneratorFactory, create_config_pipeline
 )
 
-from .engine import (
-    ModernTopologyGenerator, GenerationContext, generate_topology
-)
 
 from .templates import (
     TemplateGeneratorFactory, BaseTemplateGenerator,
@@ -24,9 +21,6 @@ __all__ = [
     'ConfigGenerator', 'ConfigBuilder', 'ConfigSection',
     'DaemonsConfigGenerator', 'ZebraConfigGenerator', 'OSPF6ConfigGenerator',
     'ConfigGeneratorFactory', 'create_config_pipeline',
-
-    # 生成引擎
-    'ModernTopologyGenerator', 'GenerationContext', 'generate_topology',
 
     # 模板生成器
     'TemplateGeneratorFactory', 'BaseTemplateGenerator',

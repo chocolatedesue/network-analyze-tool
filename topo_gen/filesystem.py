@@ -5,23 +5,18 @@
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 from pathlib import Path
 import anyio
 from anyio import Path as AsyncPath
 import stat
+import os
 
-from .core.types import RouterName, Success, Failure, Result, TopologyType
+from .core.types import RouterName, Success, Failure, Result
 from .core.models import TopologyConfig, RouterInfo, SystemRequirements
 from .generators.config import ConfigGeneratorFactory
-from .generators.templates import TemplateGeneratorFactory, generate_all_templates
-
-
-def get_topology_type_str(topology_type) -> str:
-    """获取拓扑类型字符串"""
-    if hasattr(topology_type, 'value'):
-        return topology_type.value
-    return str(topology_type)
+from .generators.templates import generate_all_templates
+from .utils.topo import get_topology_type_str
 
 
 class FileSystemManager:
@@ -249,6 +244,13 @@ class FileSystemManager:
         # 生成管理网络配置
         mgmt_config = self._generate_mgmt_network(config.total_routers)
 
+        # 计算 CPU 亲和性范围：0 ~ (cpus - 1)
+        try:
+            total_cpus = os.cpu_count() or 1
+        except Exception:
+            total_cpus = 1
+        cpu_set_range = f"0-{max(0, total_cpus - 1)}"
+
         # 生成完整配置
         clab_config = {
             "name": f"ospfv3-{topo_suffix}{config.size}x{config.size}",
@@ -257,13 +259,19 @@ class FileSystemManager:
                 **mgmt_config
             },
             "topology": {
+                "defaults": {
+                    # 限制所有容器 CPU 亲和性到 0~cpus-1，单容器上限 1.0 vCPU，内存上限 512MB
+                    "cpu-set": cpu_set_range,
+                    "cpu": 1.0,
+                    "memory": "512MB",
+                },
                 "nodes": nodes,
                 "links": clab_links
             }
         }
 
         return yaml.dump(clab_config, default_flow_style=False, indent=2)
-    
+
     def _generate_mgmt_network(self, total_routers: int) -> Dict[str, str]:
         """生成管理网络配置"""
         if total_routers <= 254:
@@ -290,8 +298,11 @@ async def create_all_directories(
     requirements: SystemRequirements
 ) -> Result:
     """创建所有目录"""
-    base_dir = Path(f"ospfv3_{get_topology_type_str(config.topology_type)}{config.size}x{config.size}")
-    
+    if getattr(config, "output_dir", None):
+        base_dir = Path(str(config.output_dir))
+    else:
+        base_dir = Path(f"ospfv3_{get_topology_type_str(config.topology_type)}{config.size}x{config.size}")
+
     fs_manager = FileSystemManager(base_dir)
     return await fs_manager.create_directory_structure(routers)
 

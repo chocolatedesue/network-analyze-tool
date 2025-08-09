@@ -20,13 +20,7 @@ from .filesystem import (
 )
 from .links import generate_interface_mappings, convert_links_to_clab_format, generate_loopback_ipv6
 from .topology.special import filter_routers_for_special_topology
-
-
-def get_topology_type_str(topology_type) -> str:
-    """获取拓扑类型字符串"""
-    if hasattr(topology_type, 'value'):
-        return topology_type.value
-    return str(topology_type)
+from .utils.topo import get_topology_type_str
 
 
 class TopologyEngine:
@@ -273,7 +267,9 @@ class TopologyEngine:
             return base_as  # 默认AS（不应该发生）
 
     def _get_output_dir(self, config: TopologyConfig) -> Path:
-        """获取输出目录"""
+        """获取输出目录（优先使用配置中的 output_dir）"""
+        if getattr(config, "output_dir", None):
+            return Path(str(config.output_dir))
         topo_type = get_topology_type_str(config.topology_type)
         return Path(f"ospfv3_{topo_type}{config.size}x{config.size}")
 

@@ -11,7 +11,7 @@ from pathlib import Path
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
-from topo_gen.core.types import Coordinate, Direction, TopologyType
+from topo_gen.core.types import Coordinate, Direction
 from topo_gen.topology.torus import create_torus_topology
 from topo_gen.topology.special import (
     create_dm6_6_sample, get_subregion_for_coord, 
@@ -39,47 +39,31 @@ def test_torus_topology():
         
         if len(neighbors) != 4:
             print(f"❌ 错误: 节点 {coord} 应该有 4 个邻居，实际有 {len(neighbors)} 个")
-            return False
+            assert False, f"节点 {coord} 应该有 4 个邻居，实际有 {len(neighbors)} 个"
         
         # 验证环绕连接
         if row == 0:  # 顶部边界
-            if Direction.NORTH not in neighbors:
-                print(f"❌ 错误: 顶部节点 {coord} 缺少北向环绕连接")
-                return False
+            assert Direction.NORTH in neighbors, f"顶部节点 {coord} 缺少北向环绕连接"
             north_neighbor = neighbors[Direction.NORTH]
-            if north_neighbor.row != size - 1:
-                print(f"❌ 错误: 顶部节点 {coord} 的北向邻居应该是 ({size-1}, {col})，实际是 {north_neighbor}")
-                return False
-        
+            assert north_neighbor.row == size - 1, f"顶部节点 {coord} 的北向邻居应该是 ({size-1}, {col})，实际是 {north_neighbor}"
+
         if row == size - 1:  # 底部边界
-            if Direction.SOUTH not in neighbors:
-                print(f"❌ 错误: 底部节点 {coord} 缺少南向环绕连接")
-                return False
+            assert Direction.SOUTH in neighbors, f"底部节点 {coord} 缺少南向环绕连接"
             south_neighbor = neighbors[Direction.SOUTH]
-            if south_neighbor.row != 0:
-                print(f"❌ 错误: 底部节点 {coord} 的南向邻居应该是 (0, {col})，实际是 {south_neighbor}")
-                return False
-        
+            assert south_neighbor.row == 0, f"底部节点 {coord} 的南向邻居应该是 (0, {col})，实际是 {south_neighbor}"
+
         if col == 0:  # 左边界
-            if Direction.WEST not in neighbors:
-                print(f"❌ 错误: 左边节点 {coord} 缺少西向环绕连接")
-                return False
+            assert Direction.WEST in neighbors, f"左边节点 {coord} 缺少西向环绕连接"
             west_neighbor = neighbors[Direction.WEST]
-            if west_neighbor.col != size - 1:
-                print(f"❌ 错误: 左边节点 {coord} 的西向邻居应该是 ({row}, {size-1})，实际是 {west_neighbor}")
-                return False
-        
+            assert west_neighbor.col == size - 1, f"左边节点 {coord} 的西向邻居应该是 ({row}, {size-1})，实际是 {west_neighbor}"
+
         if col == size - 1:  # 右边界
-            if Direction.EAST not in neighbors:
-                print(f"❌ 错误: 右边节点 {coord} 缺少东向环绕连接")
-                return False
+            assert Direction.EAST in neighbors, f"右边节点 {coord} 缺少东向环绕连接"
             east_neighbor = neighbors[Direction.EAST]
-            if east_neighbor.col != 0:
-                print(f"❌ 错误: 右边节点 {coord} 的东向邻居应该是 ({row}, 0)，实际是 {east_neighbor}")
-                return False
+            assert east_neighbor.col == 0, f"右边节点 {coord} 的东向邻居应该是 ({row}, 0)，实际是 {east_neighbor}"
     
     print("✅ Torus 拓扑测试通过")
-    return True
+    assert True  # Test passed
 
 
 def test_special_topology_subregions():
@@ -100,11 +84,9 @@ def test_special_topology_subregions():
     
     for coord, expected_region in test_cases:
         actual_region = get_subregion_for_coord(coord)
-        if actual_region != expected_region:
-            print(f"❌ 错误: {coord} 应该属于区域 {expected_region}，实际属于区域 {actual_region}")
-            return False
+        assert actual_region == expected_region, f"{coord} 应该属于区域 {expected_region}，实际属于区域 {actual_region}"
         print(f"✅ {coord} -> 区域 {actual_region}")
-    
+
     # 测试跨区域连接检测
     cross_region_cases = [
         (Coordinate(2, 2), Coordinate(2, 3), True),   # 跨越列边界
@@ -112,16 +94,14 @@ def test_special_topology_subregions():
         (Coordinate(1, 1), Coordinate(1, 2), False),  # 同区域内
         (Coordinate(4, 4), Coordinate(4, 5), False),  # 同区域内
     ]
-    
+
     for coord1, coord2, expected_cross in cross_region_cases:
         actual_cross = is_cross_region_connection(coord1, coord2)
-        if actual_cross != expected_cross:
-            print(f"❌ 错误: {coord1} <-> {coord2} 跨区域检测错误，期望 {expected_cross}，实际 {actual_cross}")
-            return False
+        assert actual_cross == expected_cross, f"{coord1} <-> {coord2} 跨区域检测错误，期望 {expected_cross}，实际 {actual_cross}"
         print(f"✅ {coord1} <-> {coord2}: 跨区域={actual_cross}")
-    
+
     print("✅ Special 拓扑子区域划分测试通过")
-    return True
+    assert True  # Test passed
 
 
 def test_filtered_grid_neighbors():
@@ -147,17 +127,17 @@ def test_filtered_grid_neighbors():
         neighbors = get_filtered_grid_neighbors(coord, size)
         actual_directions = set(neighbors.keys())
         expected_directions_set = set(expected_directions)
-        
-        if actual_directions != expected_directions_set:
-            print(f"❌ 错误: {coord} 的邻居方向不正确")
-            print(f"   期望: {sorted([d.name for d in expected_directions_set])}")
-            print(f"   实际: {sorted([d.name for d in actual_directions])}")
-            return False
-        
+
+        assert actual_directions == expected_directions_set, (
+            f"{coord} 的邻居方向不正确\n"
+            f"期望: {sorted([d.name for d in expected_directions_set])}\n"
+            f"实际: {sorted([d.name for d in actual_directions])}"
+        )
+
         print(f"✅ {coord}: {sorted([d.name for d in actual_directions])}")
-    
+
     print("✅ 过滤后的 Grid 邻居测试通过")
-    return True
+    assert True  # Test passed
 
 
 def test_special_topology_gateway_interfaces():
@@ -188,9 +168,9 @@ def test_special_topology_gateway_interfaces():
         for direction, neighbor in neighbors.items():
             print(f"  {direction.name}: {neighbor}")
 
-        if actual_interfaces < expected_min_interfaces:
-            print(f"❌ 错误: Gateway {coord} 应该至少有 {expected_min_interfaces} 个接口，实际有 {actual_interfaces} 个")
-            return False
+        assert actual_interfaces >= expected_min_interfaces, (
+            f"Gateway {coord} 应该至少有 {expected_min_interfaces} 个接口，实际有 {actual_interfaces} 个"
+        )
 
     # 测试非 gateway 节点的接口数量
     non_gateway_test_cases = [
@@ -205,41 +185,32 @@ def test_special_topology_gateway_interfaces():
 
         print(f"Non-Gateway {coord}: {actual_interfaces} 个接口")
 
-        if actual_interfaces != expected_interfaces:
-            print(f"❌ 错误: Non-Gateway {coord} 应该有 {expected_interfaces} 个接口，实际有 {actual_interfaces} 个")
-            return False
+        assert actual_interfaces == expected_interfaces, (
+            f"Non-Gateway {coord} 应该有 {expected_interfaces} 个接口，实际有 {actual_interfaces} 个"
+        )
 
     print("✅ Special 拓扑 Gateway 接口测试通过")
-    return True
+    assert True  # Test passed
 
 
 def main():
     """主测试函数"""
     print("开始拓扑修复测试...\n")
 
-    success = True
-
     # 测试 torus 拓扑
-    if not test_torus_topology():
-        success = False
+    test_torus_topology()
 
     # 测试 special 拓扑
-    if not test_special_topology_subregions():
-        success = False
+    test_special_topology_subregions()
 
-    if not test_filtered_grid_neighbors():
-        success = False
+    test_filtered_grid_neighbors()
 
-    if not test_special_topology_gateway_interfaces():
-        success = False
+    test_special_topology_gateway_interfaces()
 
     print(f"\n{'='*50}")
-    if success:
-        print("🎉 所有测试通过！")
-    else:
-        print("❌ 部分测试失败")
+    print("🎉 所有测试通过！")
 
-    return success
+    return True
 
 
 if __name__ == "__main__":

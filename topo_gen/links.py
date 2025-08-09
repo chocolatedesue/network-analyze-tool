@@ -14,6 +14,11 @@ from .core.types import (
     INTERFACE_MAPPING, REVERSE_DIRECTION
 )
 from .core.models import TopologyConfig, RouterInfo, TopologyType
+from .utils.topo import get_topology_type_str
+from .utils.direction import calculate_direction
+from .topology.grid import get_grid_neighbors as grid_neighbors_factory
+from .topology.torus import get_torus_neighbors as torus_neighbors_factory
+from .topology.special import SpecialTopology
 
 
 @dataclass
@@ -89,43 +94,24 @@ def generate_link_ipv6(size: int, coord1: Coordinate, coord2: Coordinate) -> Lin
 
 
 def get_neighbors_func(topology_type: TopologyType, size: int, special_config=None):
-    """获取邻居函数"""
+    """获取邻居函数（统一使用 topology 工厂/工具函数）。"""
     if topology_type == TopologyType.GRID:
-        return lambda coord: get_grid_neighbors(coord, size)
+        grid_neighbors = grid_neighbors_factory(size)
+        return lambda coord: grid_neighbors(coord)
     elif topology_type == TopologyType.TORUS:
-        return lambda coord: get_torus_neighbors(coord, size)
+        torus_neighbors = torus_neighbors_factory(size)
+        return lambda coord: torus_neighbors(coord)
     elif topology_type == TopologyType.SPECIAL and special_config:
-        return lambda coord: get_special_neighbors(coord, size, special_config)
+        # 使用 SpecialTopology 以便与 topology.special 的逻辑保持一致
+        topo = SpecialTopology(TopologyType.SPECIAL)
+        return lambda coord: topo.get_neighbors(coord, size, special_config)
     else:
-        return lambda coord: get_grid_neighbors(coord, size)
+        grid_neighbors = grid_neighbors_factory(size)
+        return lambda coord: grid_neighbors(coord)
 
 
-def get_grid_neighbors(coord: Coordinate, size: int) -> Dict[Direction, Coordinate]:
-    """获取Grid拓扑的邻居"""
-    neighbors = {}
-    row, col = coord.row, coord.col
-    
-    if row > 0:
-        neighbors[Direction.NORTH] = Coordinate(row - 1, col)
-    if row < size - 1:
-        neighbors[Direction.SOUTH] = Coordinate(row + 1, col)
-    if col > 0:
-        neighbors[Direction.WEST] = Coordinate(row, col - 1)
-    if col < size - 1:
-        neighbors[Direction.EAST] = Coordinate(row, col + 1)
-    
-    return neighbors
-
-
-def get_torus_neighbors(coord: Coordinate, size: int) -> Dict[Direction, Coordinate]:
-    """获取Torus拓扑的邻居"""
-    row, col = coord.row, coord.col
-    return {
-        Direction.NORTH: Coordinate((row - 1 + size) % size, col),
-        Direction.SOUTH: Coordinate((row + 1) % size, col),
-        Direction.WEST: Coordinate(row, (col - 1 + size) % size),
-        Direction.EAST: Coordinate(row, (col + 1) % size)
-    }
+# 统一后，links 模块不再维护自己的 grid/torus 邻居计算，
+# 通过 topology 模块提供的工厂函数获取（见 get_neighbors_func）。
 
 
 def get_special_neighbors(coord: Coordinate, size: int, special_config) -> Dict[Direction, Coordinate]:
@@ -236,18 +222,11 @@ def generate_all_links(config: TopologyConfig) -> List[LinkAddress]:
 
     else:
         # 标准拓扑处理
+        neighbors_factory = get_neighbors_func(config.topology_type, config.size)
         for row in range(config.size):
             for col in range(config.size):
                 coord = Coordinate(row, col)
-
-                # 直接调用相应的邻居函数，避免 lambda 闭包问题
-                is_torus = (config.topology_type == TopologyType.TORUS or
-                           str(config.topology_type).lower() == 'torus')
-
-                if is_torus:
-                    neighbors = get_torus_neighbors(coord, config.size)
-                else:  # GRID
-                    neighbors = get_grid_neighbors(coord, config.size)
+                neighbors = neighbors_factory(coord)
 
                 for neighbor_coord in neighbors.values():
                     pair = tuple(sorted([
@@ -352,11 +331,6 @@ def find_available_direction_for_torus_bridge(coord: Coordinate, existing_interf
     return Direction.NORTH
 
 
-def get_topology_type_str(topology_type) -> str:
-    """获取拓扑类型字符串"""
-    if hasattr(topology_type, 'value'):
-        return topology_type.value
-    return str(topology_type)
 
 
 

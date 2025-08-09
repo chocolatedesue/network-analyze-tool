@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from typing import Optional, List, Dict, Any
+from typing import Optional, List
 from pathlib import Path
 import anyio
 import sys
@@ -16,23 +16,21 @@ try:
     from rich.table import Table
     from rich.progress import Progress, SpinnerColumn, TextColumn
     from rich.panel import Panel
-    from rich.syntax import Syntax
     from rich.prompt import Confirm
 except ImportError:
-    print("请安装依赖: pip install typer rich")
+    print("请安装依赖: uv run -m pip install typer rich")
     sys.exit(1)
 
-from .core.types import TopologyType, Coordinate
+from .core.types import TopologyType
 from .core.models import (
-    TopologyConfig, NetworkConfig, OSPFConfig, BGPConfig, BFDConfig,
+    TopologyConfig, OSPFConfig, BGPConfig, BFDConfig,
     SpecialTopologyConfig, SystemRequirements
 )
-from .topology.grid import create_grid_topology, validate_grid_topology
-from .topology.torus import create_torus_topology, validate_torus_topology
-from .topology.special import create_dm6_6_sample, validate_special_topology
-from .generators.config import ConfigGeneratorFactory
+from .topology.grid import validate_grid_topology
+from .topology.torus import validate_torus_topology
+from .topology.special import create_dm6_6_sample
 from .engine import generate_topology
-# 移除不需要的导入
+# 清理未使用的导入，提升可读性
 
 # 创建应用和控制台
 app = typer.Typer(
@@ -174,24 +172,28 @@ def generate_grid(
     """生成Grid拓扑"""
 
     # 创建配置
-    config = TopologyConfig(
-        size=size,
-        topology_type=TopologyType.GRID,
-        multi_area=multi_area,
-        area_size=area_size,
-        ospf_config=OSPFConfig(
-            hello_interval=hello_interval,
-            dead_interval=dead_interval,
-            spf_delay=spf_delay
-        ) if enable_ospf6 else None,
-        bgp_config=BGPConfig(as_number=bgp_as) if enable_bgp else None,
-        bfd_config=BFDConfig(enabled=enable_bfd),
-        daemons_off=daemons_off,
-        bgpd_off=bgpd_off,
-        ospf6d_off=ospf6d_off,
-        bfdd_off=bfdd_off,
-        dummy_gen_protocols=set(sum([s.lower().split(',') for s in dummy_gen], []))
-    )
+    try:
+        config = TopologyConfig(
+            size=size,
+            topology_type=TopologyType.GRID,
+            multi_area=multi_area,
+            area_size=area_size,
+            ospf_config=OSPFConfig(
+                hello_interval=hello_interval,
+                dead_interval=dead_interval,
+                spf_delay=spf_delay
+            ) if enable_ospf6 else None,
+            bgp_config=BGPConfig(as_number=bgp_as) if enable_bgp else None,
+            bfd_config=BFDConfig(enabled=enable_bfd),
+            daemons_off=daemons_off,
+            bgpd_off=bgpd_off,
+            ospf6d_off=ospf6d_off,
+            bfdd_off=bfdd_off,
+            dummy_gen_protocols=set(sum([s.lower().split(',') for s in dummy_gen], []))
+        )
+    except Exception as e:
+        console.print(f"[red]配置验证失败: {e}[/red]")
+        raise typer.Exit(1)
     
     # 验证配置
     validation_errors = validate_grid_topology(size)
@@ -222,7 +224,7 @@ def generate_grid(
             TextColumn("[progress.description]{task.description}"),
             console=console
         ) as progress:
-            task = progress.add_task("生成Grid拓扑...", total=None)
+            _ = progress.add_task("生成Grid拓扑...", total=None)
             
             # 调用实际的生成逻辑
             result = anyio.run(generate_topology, config)
@@ -257,24 +259,28 @@ def generate_torus(
     """生成Torus拓扑"""
 
     # 创建配置
-    config = TopologyConfig(
-        size=size,
-        topology_type=TopologyType.TORUS,
-        multi_area=multi_area,
-        area_size=area_size,
-        ospf_config=OSPFConfig(
-            hello_interval=hello_interval,
-            dead_interval=dead_interval,
-            spf_delay=spf_delay
-        ) if enable_ospf6 else None,
-        bgp_config=BGPConfig(as_number=bgp_as) if enable_bgp else None,
-        bfd_config=BFDConfig(enabled=enable_bfd),
-        daemons_off=daemons_off,
-        bgpd_off=bgpd_off,
-        ospf6d_off=ospf6d_off,
-        bfdd_off=bfdd_off,
-        dummy_gen_protocols=set(sum([s.lower().split(',') for s in dummy_gen], []))
-    )
+    try:
+        config = TopologyConfig(
+            size=size,
+            topology_type=TopologyType.TORUS,
+            multi_area=multi_area,
+            area_size=area_size,
+            ospf_config=OSPFConfig(
+                hello_interval=hello_interval,
+                dead_interval=dead_interval,
+                spf_delay=spf_delay
+            ) if enable_ospf6 else None,
+            bgp_config=BGPConfig(as_number=bgp_as) if enable_bgp else None,
+            bfd_config=BFDConfig(enabled=enable_bfd),
+            daemons_off=daemons_off,
+            bgpd_off=bgpd_off,
+            ospf6d_off=ospf6d_off,
+            bfdd_off=bfdd_off,
+            dummy_gen_protocols=set(sum([s.lower().split(',') for s in dummy_gen], []))
+        )
+    except Exception as e:
+        console.print(f"[red]配置验证失败: {e}[/red]")
+        raise typer.Exit(1)
     
     # 验证配置
     validation_errors = validate_torus_topology(size)
@@ -305,7 +311,7 @@ def generate_torus(
             TextColumn("[progress.description]{task.description}"),
             console=console
         ) as progress:
-            task = progress.add_task("生成Torus拓扑...", total=None)
+            _ = progress.add_task("生成Torus拓扑...", total=None)
             
             # 调用实际的生成逻辑
             result = anyio.run(generate_topology, config)
@@ -352,24 +358,28 @@ def generate_special(
     )
     
     # 创建拓扑配置
-    config = TopologyConfig(
-        size=6,
-        topology_type=TopologyType.SPECIAL,
-        multi_area=False,
-        ospf_config=OSPFConfig(
-            hello_interval=hello_interval,
-            dead_interval=dead_interval,
-            spf_delay=spf_delay
-        ) if enable_ospf6 else None,
-        bgp_config=BGPConfig(as_number=bgp_as) if enable_bgp else None,
-        bfd_config=BFDConfig(enabled=enable_bfd),
-        daemons_off=daemons_off,
-        bgpd_off=bgpd_off,
-        ospf6d_off=ospf6d_off,
-        bfdd_off=bfdd_off,
-        dummy_gen_protocols=set(sum([s.lower().split(',') for s in dummy_gen], [])),
-        special_config=special_config
-    )
+    try:
+        config = TopologyConfig(
+            size=6,
+            topology_type=TopologyType.SPECIAL,
+            multi_area=False,
+            ospf_config=OSPFConfig(
+                hello_interval=hello_interval,
+                dead_interval=dead_interval,
+                spf_delay=spf_delay
+            ) if enable_ospf6 else None,
+            bgp_config=BGPConfig(as_number=bgp_as) if enable_bgp else None,
+            bfd_config=BFDConfig(enabled=enable_bfd),
+            daemons_off=daemons_off,
+            bgpd_off=bgpd_off,
+            ospf6d_off=ospf6d_off,
+            bfdd_off=bfdd_off,
+            dummy_gen_protocols=set(sum([s.lower().split(',') for s in dummy_gen], [])),
+            special_config=special_config
+        )
+    except Exception as e:
+        console.print(f"[red]配置验证失败: {e}[/red]")
+        raise typer.Exit(1)
     
     # 显示信息
     display_topology_info(config)
@@ -409,7 +419,7 @@ def generate_special(
             TextColumn("[progress.description]{task.description}"),
             console=console
         ) as progress:
-            task = progress.add_task("生成Special拓扑...", total=None)
+            _ = progress.add_task("生成Special拓扑...", total=None)
             
             # 调用实际的生成逻辑
             result = anyio.run(generate_topology, config)

@@ -9,6 +9,7 @@ from typing import Dict, List, Optional, Set, Any, ClassVar
 from pydantic import BaseModel, Field, ConfigDict, computed_field, field_validator, model_validator
 from pydantic.networks import IPv6Address, IPv6Network
 from enum import Enum
+from pathlib import Path
 import ipaddress
 
 from .types import (
@@ -363,9 +364,23 @@ class TopologyConfig(BaseConfig):
     # Dummy 生成控制（将真实配置保存为 -bak.conf，并生成空配置作为主文件）
     dummy_gen_protocols: Set[str] = Field(default_factory=set, description="需要生成空配置的协议集合，支持: ospf6d/bgpd/bfdd")
 
+    @field_validator('dummy_gen_protocols')
+    @classmethod
+    def validate_dummy_gen_protocols(cls, v: Set[str]) -> Set[str]:
+        """验证 dummy 生成协议名称"""
+        valid_protocols = {"ospf6d", "bgpd", "bfdd"}
+        if v:
+            invalid_protocols = v - valid_protocols
+            if invalid_protocols:
+                raise ValueError(f"无效的协议名称: {', '.join(sorted(invalid_protocols))}。支持的协议: {', '.join(sorted(valid_protocols))}")
+        return v
+
+    # 输出目录（可选），若未设置则使用默认命名规则
+    output_dir: Optional[Path] = Field(default=None, description="自定义输出目录")
+
     # 特殊拓扑配置
     special_config: Optional[SpecialTopologyConfig] = Field(default=None, description="特殊拓扑配置")
-    
+
     @field_validator('area_size')
     @classmethod
     def validate_area_size(cls, v: Optional[int], info) -> Optional[int]:

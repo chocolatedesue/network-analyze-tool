@@ -50,7 +50,7 @@ def test_torus_topology_generation():
     print("⚠️  跳过完整生成测试（需要异步支持）")
 
     print("✅ Torus 拓扑生成测试通过")
-    return True
+    assert True  # Test passed
 
 
 def test_special_topology_generation():
@@ -121,7 +121,7 @@ def test_special_topology_generation():
     # 暂时跳过完整生成测试，因为需要异步支持
     print("⚠️  跳过完整生成测试（需要异步支持）")
     print("✅ Special 拓扑生成测试通过")
-    return True
+    assert True  # Test passed
 
 
 def test_interface_allocation():
@@ -197,7 +197,7 @@ def test_interface_allocation():
     
     print(f"✅ {gateway_with_extra_interfaces} 个 gateway 节点有额外接口")
     print("✅ 接口分配测试通过")
-    return True
+    assert True  # Test passed
 
 
 def main():
