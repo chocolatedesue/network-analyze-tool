@@ -38,6 +38,9 @@ interface {{ iface.name }}
 !
 router ospf6
  ospf6 router-id {{ router.router_id }}
+{% if loopback_range %}
+ area {{ loopback_area_id }} range {{ loopback_range }}
+{% endif %}
 {% if router.lsa_min_arrival %}
  timers lsa min-arrival {{ router.lsa_min_arrival }}
 {% endif %}

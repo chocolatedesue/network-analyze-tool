@@ -64,11 +64,18 @@ def _build_ospf_context(router_info: RouterInfo, config: TopologyConfig) -> Dict
             }
         )
 
+    # 生成loopback range配置，按照用户指定的格式
+    loopback_range = None
+    if router_info.loopback_ipv6:
+        from ..core.types import ensure_ipv6_prefix
+        loopback_range = ensure_ipv6_prefix(str(router_info.loopback_ipv6), 128)
+
     return {
         "router_name": router_info.name,
         "disable_logging": config.disable_logging,
         "interfaces": interfaces_ctx,
         "loopback_area_id": router_info.area_id,
+        "loopback_range": loopback_range,
         "router": {
             "router_id": router_info.router_id,
             "spf_delay": ospf_config.spf_delay,
@@ -118,6 +125,75 @@ def _get_ebgp_interfaces(router_info: RouterInfo, topology_config: TopologyConfi
                 ebgp_interfaces.add(interface)
 
     return ebgp_interfaces
+
+def _build_isis_context(router_info: RouterInfo, config: TopologyConfig) -> Dict[str, object]:
+    """构建 ISIS 模板上下文。"""
+    assert config.isis_config is not None
+    isis_config = config.isis_config
+    
+    # 生成基于路由器坐标的唯一系统ID (简化为4位数字)
+    system_id_num = router_info.coordinate.row * 100 + router_info.coordinate.col + 1  # +1 避免从0开始
+    system_id = f"0000.0000.{system_id_num:04d}"
+    
+    # 生成NET地址 (标准5段格式)
+    net_address = f"{isis_config.area_id}.{system_id}.00"
+    
+    # 处理loopback地址
+    loopback_ipv6 = str(router_info.loopback_ipv6)
+    if "/128" not in loopback_ipv6:
+        loopback_ipv6 = f"{loopback_ipv6}/128"
+    
+    # 生成IPv4 loopback地址 (10.0.router_id.router_id/32)
+    router_id = system_id_num
+    loopback_ipv4 = f"10.0.{router_id}.{router_id}/32"
+    
+    # 生成接口列表
+    iface_list = []
+    interface_counter = 0
+    for interface_name in sorted(router_info.interfaces.keys()):
+        # IPv6地址
+        addr_str = str(router_info.interfaces[interface_name])
+        addr_with_prefix = addr_str if "/" in addr_str else f"{addr_str}/127"
+        
+        # 生成IPv4地址 (点到点/31)
+        # 基于路由器ID和接口编号生成IPv4地址
+        subnet_base = 10 * router_id + interface_counter
+        ipv4_base = f"10.1.{subnet_base}.0/31"
+        
+        iface_list.append({
+            "name": interface_name, 
+            "addr": addr_with_prefix,
+            "ipv4_addr": ipv4_base
+        })
+        interface_counter += 1
+    
+    return {
+        # Router identification for new hostname format
+        "row": f"{router_info.coordinate.row:02d}",
+        "col": f"{router_info.coordinate.col:02d}",
+        "disable_logging": config.disable_logging,
+        "loopback_ipv6": loopback_ipv6,
+        "interfaces": iface_list,
+        "isis_area": "1",  # Updated to match template
+        "net_address": net_address,
+        "level_type": isis_config.level_type,
+        "metric_style": isis_config.metric_style,
+        
+        # 基础计时器参数
+        "isis_hello_interval": isis_config.hello_interval,
+        "isis_hello_multiplier": isis_config.hello_multiplier,
+        "isis_metric": isis_config.isis_metric,
+        
+        # 收敛优化参数
+        "isis_lsp_gen_interval": isis_config.lsp_gen_interval,
+        
+        # SPF延迟优化参数 (IETF风格)
+        "spf_init_delay": isis_config.spf_init_delay,
+        "spf_short_delay": isis_config.spf_short_delay,
+        "spf_long_delay": isis_config.spf_long_delay,
+        "spf_holddown": isis_config.spf_holddown,
+        "spf_time_to_learn": isis_config.spf_time_to_learn,
+    }
 
 def _build_bgp_context(router_info: RouterInfo, config: TopologyConfig, all_routers: Optional[List[RouterInfo]]) -> Dict[str, object]:
     """构建 BGP 模板上下文。"""
@@ -321,20 +397,24 @@ class DaemonsConfigGenerator:
             topo_type in ["grid", "torus"]
         )
 
-        # 判断是否启用BFD和OSPF6
+        # 判断是否启用BFD、OSPF6和ISIS
         enable_bfd = config.enable_bfd
         enable_ospf6 = config.ospf_config is not None
+        enable_isis = config.enable_isis
 
         # 当 daemons_off=True 时，仅在 daemons 文件中关闭相应守护进程，但仍允许生成对应配置文件
         if getattr(config, 'daemons_off', False):
             enable_bgp = False
             enable_ospf6 = False
+            enable_isis = False
             enable_bfd = False
         # 细粒度关闭：仅关闭某一类守护进程
         if getattr(config, 'bgpd_off', False):
             enable_bgp = False
         if getattr(config, 'ospf6d_off', False):
             enable_ospf6 = False
+        if getattr(config, 'isisd_off', False):
+            enable_isis = False
         if getattr(config, 'bfdd_off', False):
             enable_bfd = False
 
@@ -344,6 +424,7 @@ class DaemonsConfigGenerator:
                 "enable_bgp": enable_bgp,
                 "enable_bfd": enable_bfd,
                 "enable_ospf6": enable_ospf6,
+                "enable_isis": enable_isis,
             },
         ) + "\n"
 
@@ -387,6 +468,18 @@ class OSPF6ConfigGenerator:
         ctx = _build_ospf_context(router_info, config)
         return render_template("ospf6d.conf.j2", ctx)
 
+class ISISConfigGenerator:
+    """ISIS配置生成器"""
+
+    @staticmethod
+    def generate(router_info: RouterInfo, config: TopologyConfig) -> str:
+        """生成isisd配置"""
+        if not config.enable_isis or not config.isis_config:
+            return ""
+
+        ctx = _build_isis_context(router_info, config)
+        return render_template("isisd.conf.j2", ctx)
+
 class BGPConfigGenerator:
     """BGP配置生成器"""
 
@@ -425,6 +518,7 @@ class ConfigGeneratorFactory:
         "daemons": DaemonsConfigGenerator,
         "zebra.conf": ZebraConfigGenerator,
         "ospf6d.conf": OSPF6ConfigGenerator,
+        "isisd.conf": ISISConfigGenerator,
         "bgpd.conf": BGPConfigGenerator,
         "bfdd.conf": BFDConfigGenerator,
     }

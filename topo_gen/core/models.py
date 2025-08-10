@@ -129,6 +129,95 @@ class BGPConfig(BaseConfig):
         else:
             return "public_32bit"
 
+class ISISConfig(BaseConfig):
+    """ISIS配置 - 增强版，支持收敛优化"""
+    net_address: str = Field(description="NET地址")
+    area_id: str = Field(default="49.0001", description="Area ID")
+    system_id: Optional[str] = Field(default=None, description="System ID，如果为None则自动生成")
+    level_type: str = Field(default="level-2", description="ISIS级别类型")
+    metric_style: str = Field(default="wide", description="度量样式")
+    
+    # 基础计时器参数
+    hello_interval: int = Field(default=1, ge=1, le=65535, description="Hello间隔(秒) - 优化默认值1秒")
+    hello_multiplier: int = Field(default=3, ge=3, le=50, description="Hello倍数器 - 优化默认值3")
+    priority: int = Field(default=64, ge=0, le=127, description="优先级")
+    
+    # 收敛优化参数
+    lsp_gen_interval: int = Field(default=1, ge=1, le=120, description="LSP生成间隔(秒) - 优化默认值1秒")
+    spf_interval: int = Field(default=1, ge=1, le=120, description="SPF计算间隔(秒) - 优化默认值1秒")
+    csnp_interval: int = Field(default=5, ge=1, le=600, description="CSNP间隔(秒) - 优化默认值5秒")
+    psnp_interval: int = Field(default=1, ge=1, le=120, description="PSNP间隔(秒) - 优化默认值1秒")
+    
+    # 高级优化参数
+    lsp_mtu: int = Field(default=1497, ge=128, le=9216, description="LSP MTU大小")
+    max_lsp_lifetime: int = Field(default=1200, ge=350, le=65535, description="LSP最大生存时间(秒)")
+    lsp_refresh_interval: int = Field(default=900, ge=1, le=65534, description="LSP刷新间隔(秒)")
+    
+    # 快速收敛特性
+    fast_reroute: bool = Field(default=True, description="启用快速重路由")
+    three_way_handshake: bool = Field(default=True, description="启用三路握手")
+    
+    # SPF 延迟优化参数 (IETF风格，毫秒)
+    spf_init_delay: int = Field(default=100, ge=0, le=60000, description="SPF初始延迟(毫秒)")
+    spf_short_delay: int = Field(default=0, ge=0, le=60000, description="SPF短延迟(毫秒)")
+    spf_long_delay: int = Field(default=0, ge=0, le=60000, description="SPF长延迟(毫秒)")
+    spf_holddown: int = Field(default=0, ge=0, le=60000, description="SPF保持延迟(毫秒)")
+    spf_time_to_learn: int = Field(default=0, ge=0, le=60000, description="SPF学习时间(毫秒)")
+    
+    # 接口度量
+    isis_metric: int = Field(default=10, ge=1, le=16777215, description="ISIS接口度量值")
+    
+    @computed_field
+    @property
+    def dead_interval(self) -> int:
+        """计算Dead间隔 = hello_interval * hello_multiplier"""
+        return self.hello_interval * self.hello_multiplier
+    
+    @field_validator('level_type')
+    @classmethod
+    def validate_level_type(cls, v: str) -> str:
+        """验证ISIS级别类型"""
+        valid_types = {"level-1", "level-2", "level-1-2"}
+        if v not in valid_types:
+            raise ValueError(f"无效的ISIS级别类型: {v}。支持的类型: {', '.join(valid_types)}")
+        return v
+    
+    @field_validator('metric_style')
+    @classmethod
+    def validate_metric_style(cls, v: str) -> str:
+        """验证度量样式"""
+        valid_styles = {"narrow", "wide", "transition"}
+        if v not in valid_styles:
+            raise ValueError(f"无效的度量样式: {v}。支持的样式: {', '.join(valid_styles)}")
+        return v
+    
+    @field_validator('net_address')
+    @classmethod
+    def validate_net_address(cls, v: str) -> str:
+        """验证NET地址格式"""
+        # 基本格式验证: Area.SystemID.SEL
+        parts = v.split('.')
+        if len(parts) < 3:
+            raise ValueError(f"无效的NET地址格式: {v}。应为Area.SystemID.SEL格式")
+        return v
+    
+    @field_validator('lsp_refresh_interval')
+    @classmethod
+    def validate_lsp_refresh_interval(cls, v: int, info) -> int:
+        """验证LSP刷新间隔必须小于最大生存时间"""
+        if 'max_lsp_lifetime' in info.data and v >= info.data['max_lsp_lifetime']:
+            raise ValueError("LSP刷新间隔必须小于最大生存时间")
+        return v
+    
+    @computed_field
+    @property
+    def is_optimized_for_convergence(self) -> bool:
+        """是否为收敛优化配置"""
+        return (self.hello_interval <= 2 and 
+                self.hello_multiplier <= 4 and
+                self.lsp_gen_interval <= 2 and
+                self.spf_interval <= 2)
+
 class BFDConfig(BaseConfig):
     """BFD配置 - 增强版"""
     enabled: bool = Field(default=False, description="是否启用BFD")
@@ -353,6 +442,7 @@ class TopologyConfig(BaseConfig):
     # 协议配置
     network_config: NetworkConfig = Field(default_factory=NetworkConfig, description="网络配置")
     ospf_config: Optional[OSPFConfig] = Field(default_factory=OSPFConfig, description="OSPF配置")
+    isis_config: Optional[ISISConfig] = Field(default=None, description="ISIS配置")
     bgp_config: Optional[BGPConfig] = Field(default=None, description="BGP配置")
     bfd_config: BFDConfig = Field(default_factory=BFDConfig, description="BFD配置")
 
@@ -360,10 +450,11 @@ class TopologyConfig(BaseConfig):
     daemons_off: bool = Field(default=False, description="仅关闭守护进程但仍生成对应配置文件")
     bgpd_off: bool = Field(default=False, description="仅关闭 BGP 守护进程")
     ospf6d_off: bool = Field(default=False, description="仅关闭 OSPF6 守护进程")
+    isisd_off: bool = Field(default=False, description="仅关闭 ISIS 守护进程")
     bfdd_off: bool = Field(default=False, description="仅关闭 BFD 守护进程")
 
     # Dummy 生成控制（将真实配置保存为 -bak.conf，并生成空配置作为主文件）
-    dummy_gen_protocols: Set[str] = Field(default_factory=set, description="需要生成空配置的协议集合，支持: ospf6d/bgpd/bfdd")
+    dummy_gen_protocols: Set[str] = Field(default_factory=set, description="需要生成空配置的协议集合，支持: ospf6d/isisd/bgpd/bfdd")
 
     # 日志控制
     disable_logging: bool = Field(default=False, description="禁用所有配置文件中的日志记录")
@@ -372,7 +463,7 @@ class TopologyConfig(BaseConfig):
     @classmethod
     def validate_dummy_gen_protocols(cls, v: Set[str]) -> Set[str]:
         """验证 dummy 生成协议名称"""
-        valid_protocols = {"ospf6d", "bgpd", "bfdd"}
+        valid_protocols = {"ospf6d", "isisd", "bgpd", "bfdd"}
         if v:
             invalid_protocols = v - valid_protocols
             if invalid_protocols:
@@ -466,6 +557,12 @@ class TopologyConfig(BaseConfig):
     def enable_bgp(self) -> bool:
         """是否启用BGP"""
         return self.bgp_config is not None
+    
+    @computed_field
+    @property
+    def enable_isis(self) -> bool:
+        """是否启用ISIS"""
+        return self.isis_config is not None
 
 class SystemRequirements(BaseConfig):
     """系统需求"""

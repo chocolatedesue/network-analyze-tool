@@ -34,6 +34,7 @@ class AppSettings(BaseSettings):
     enable_bgp: bool = Field(default=False)
     enable_bfd: bool = Field(default=False)
     enable_ospf6: bool = Field(default=True)
+    enable_isis: bool = Field(default=False)
 
     # OSPF 参数
     hello_interval: int = Field(default=2)
@@ -49,6 +50,7 @@ class AppSettings(BaseSettings):
     daemons_off: bool = Field(default=False)
     bgpd_off: bool = Field(default=False)
     ospf6d_off: bool = Field(default=False)
+    isisd_off: bool = Field(default=False)
     bfdd_off: bool = Field(default=False)
     dummy_gen_protocols: Set[str] = Field(default_factory=set)
     disable_logging: bool = Field(default=False)

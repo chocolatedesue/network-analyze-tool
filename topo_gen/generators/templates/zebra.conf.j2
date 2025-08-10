@@ -4,9 +4,7 @@ frr version 7.5.1_git
 frr defaults traditional
 hostname {{ router_name }}
 !
-ip forwarding
-ipv6 forwarding
-!
+
 interface lo
  ipv6 address {{ loopback_ipv6 }}
 {% for iface in interfaces %}
@@ -21,5 +19,8 @@ log commands
 {% endif %}
 !
 line vty
+!
+ip forwarding
+ipv6 forwarding
 !
 

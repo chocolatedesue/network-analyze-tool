@@ -18,6 +18,22 @@ from .generators.config import ConfigGeneratorFactory
 from .generators.templates import generate_all_templates
 from .utils.topo import get_topology_type_str
 
+def get_protocol_suffix(config: TopologyConfig) -> str:
+    """获取协议后缀标识"""
+    protocols = []
+    
+    # 检查启用的路由协议
+    if config.ospf_config is not None:
+        protocols.append("ospf6")
+    if config.enable_isis:
+        protocols.append("isis")
+    
+    # 如果没有启用任何路由协议，默认返回ospf6（向后兼容）
+    if not protocols:
+        protocols.append("ospf6")
+    
+    return "_".join(protocols)
+
 
 class FileSystemManager:
     """文件系统管理器"""
@@ -65,7 +81,7 @@ class FileSystemManager:
         await log_path.mkdir(exist_ok=True)
         
         # 创建日志文件
-        log_files = ["zebra.log", "ospf6d.log", "bgpd.log", "bfdd.log", "staticd.log", "route.json"]
+        log_files = ["zebra.log", "ospf6d.log", "bgpd.log", "bfdd.log", "staticd.log", "route.json", "isisd.log"]
         for log_file in log_files:
             log_file_path = log_path / log_file
             await log_file_path.touch()
@@ -109,6 +125,9 @@ class FileSystemManager:
             if config.ospf_config is not None:
                 config_types.append("ospf6d.conf")
 
+            if config.enable_isis:
+                config_types.append("isisd.conf")
+
             if config.enable_bgp:
                 config_types.append("bgpd.conf")
 
@@ -139,7 +158,7 @@ class FileSystemManager:
         
         # 在写入前，清理与当前启用协议不一致的旧配置文件
         # 仅处理我们生成的协议配置文件，避免误删其他文件
-        stale_candidates = {"ospf6d.conf", "bgpd.conf", "bfdd.conf"}
+        stale_candidates = {"ospf6d.conf", "isisd.conf", "bgpd.conf", "bfdd.conf"}
         allowed_now = set(config_types)
         for fname in stale_candidates:
             if fname not in allowed_now:
@@ -191,7 +210,8 @@ class FileSystemManager:
             
             # 确定文件名
             topo_type = get_topology_type_str(config.topology_type)
-            yaml_filename = f"ospfv3_{topo_type}{config.size}x{config.size}.clab.yaml"
+            protocol_suffix = get_protocol_suffix(config)
+            yaml_filename = f"{protocol_suffix}_{topo_type}{config.size}x{config.size}.clab.yaml"
             
             yaml_path = AsyncPath(self.base_dir) / yaml_filename
             async with await yaml_path.open('w') as f:
@@ -227,7 +247,8 @@ class FileSystemManager:
         for router in routers:
             nodes[router.name] = {
                 "kind": "linux",
-                "image": "docker.cnb.cool/jmncnic/frrbgpls/origin:latest",
+                # "image": "docker.cnb.cool/jmncnic/frrbgpls/origin:latest",
+                "image": "quay.io/frrouting/frr:10.3.1",
                 "binds": [
                     f"etc/{router.name}/conf:/etc/frr",
                     f"etc/{router.name}/log:/var/log/frr",
@@ -252,10 +273,11 @@ class FileSystemManager:
         cpu_set_range = f"0-{max(0, total_cpus - 2)}"
 
         # 生成完整配置
+        protocol_suffix = get_protocol_suffix(config)
         clab_config = {
-            "name": f"ospfv3-{topo_suffix}{config.size}x{config.size}",
+            "name": f"{protocol_suffix.replace('_', '-')}-{topo_suffix}{config.size}x{config.size}",
             "mgmt": {
-                "network": f"ospfv3_{topo_suffix}_mgmt_{config.size}x{config.size}",
+                "network": f"{protocol_suffix}_{topo_suffix}_mgmt_{config.size}x{config.size}",
                 **mgmt_config
             },
             "topology": {
@@ -301,7 +323,8 @@ async def create_all_directories(
     if getattr(config, "output_dir", None):
         base_dir = Path(str(config.output_dir))
     else:
-        base_dir = Path(f"ospfv3_{get_topology_type_str(config.topology_type)}{config.size}x{config.size}")
+        protocol_suffix = get_protocol_suffix(config)
+        base_dir = Path(f"{protocol_suffix}_{get_topology_type_str(config.topology_type)}{config.size}x{config.size}")
 
     fs_manager = FileSystemManager(base_dir)
     return await fs_manager.create_directory_structure(routers)

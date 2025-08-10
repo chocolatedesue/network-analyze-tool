@@ -266,12 +266,29 @@ class TopologyEngine:
         else:
             return base_as  # 默认AS（不应该发生）
 
+    def _get_protocol_suffix(self, config: TopologyConfig) -> str:
+        """获取协议后缀标识"""
+        protocols = []
+        
+        # 检查启用的路由协议
+        if config.ospf_config is not None:
+            protocols.append("ospf6")
+        if config.enable_isis:
+            protocols.append("isis")
+        
+        # 如果没有启用任何路由协议，默认返回ospf6（向后兼容）
+        if not protocols:
+            protocols.append("ospf6")
+        
+        return "_".join(protocols)
+
     def _get_output_dir(self, config: TopologyConfig) -> Path:
         """获取输出目录（优先使用配置中的 output_dir）"""
         if getattr(config, "output_dir", None):
             return Path(str(config.output_dir))
         topo_type = get_topology_type_str(config.topology_type)
-        return Path(f"ospfv3_{topo_type}{config.size}x{config.size}")
+        protocol_suffix = self._get_protocol_suffix(config)
+        return Path(f"{protocol_suffix}_{topo_type}{config.size}x{config.size}")
 
 
 # 便利函数
