@@ -262,6 +262,36 @@ def get_draw_script_path(draw_type: str, size: int) -> str:
     return script_path
 
 
+def generate_filename_with_prefix(prefix: str, topology_type: str, size: int, file_type: str, extension: str) -> str:
+    """生成带prefix信息的文件名
+    
+    Args:
+        prefix: 节点前缀，如 "clab-isis-torus5x5"
+        topology_type: 拓扑类型 "torus" 或 "grid"
+        size: 网格大小
+        file_type: 文件类型，如 "converge", "fping", "tcpdump"等
+        extension: 文件扩展名，如 "csv", "png", "pcap"
+        
+    Returns:
+        格式化的文件名，如 "clab-isis_converge-ospfv3_torus5x5.csv"
+    """
+    # 从prefix中提取实验标识信息
+    # 例如: clab-isis-torus5x5 -> isis, clab-ospfv3-grid3x3 -> ospfv3
+    prefix_parts = prefix.split('-')
+    if len(prefix_parts) >= 2:
+        # 取第二部分作为协议/实验标识
+        experiment_id = prefix_parts[1]
+    else:
+        experiment_id = "exp"
+    
+    # 生成更有信息量的文件名
+    # 格式: {prefix_base}_{file_type}-ospfv3_{topology_type}{size}x{size}.{extension}
+    prefix_base = prefix_parts[0] if len(prefix_parts) >= 1 else "exp"
+    filename = f"{prefix_base}-{experiment_id}_{file_type}-ospfv3_{topology_type}{size}x{size}.{extension}"
+    
+    return filename
+
+
 # 组件函数
 def configure_network_delay(config: "Config") -> None:
     """配置网络延迟。"""
@@ -310,7 +340,13 @@ def start_monitoring(config: "Config", fping_timeout_ms: int) -> None:
         description="启动路由收敛分析器",
     )
 
-    pcap_filename = f"ospfv3_{config.topology_type.value}{config.size}x{config.size}.pcap"
+    pcap_filename = generate_filename_with_prefix(
+        config.prefix, 
+        config.topology_type.value, 
+        config.size, 
+        "tcpdump", 
+        "pcap"
+    )
     tcpdump_cmd = f"tcpdump -i any -w /var/log/frr/{pcap_filename} '(tcp port 179) or (ip6 proto 89) or (ether[20] == 0x83)'"
 
     run_functional_script(
@@ -428,7 +464,7 @@ def handle_torus_preparation(config: Config) -> None:
 
         task = progress.add_task("设置网络延迟并启动监控...", total=None)
         configure_network_delay(config)
-        start_monitoring(config, fping_timeout_ms=160)
+        start_monitoring(config, fping_timeout_ms=900)
         progress.update(task, description="✅ Torus监控启动完成")
 
     console.print("[bold green]🎉 Torus监控启动成功！[/bold green]")
@@ -455,16 +491,20 @@ def handle_torus_collection(config: Config) -> None:
 
         # 清理旧数据文件
         progress.update(task, description="清理旧数据文件...")
-        remove_file_if_exists(f"./data/converge-ospfv3_torus{size}x{size}.csv")
-        remove_file_if_exists(f"./data/ping-ospfv3_torus{size}x{size}.csv")
-        remove_file_if_exists(f"./data/fping-ospfv3_torus{size}x{size}.csv")
+        converge_csv = f"./data/{generate_filename_with_prefix(prefix, 'torus', size, 'converge', 'csv')}"
+        ping_csv = f"./data/{generate_filename_with_prefix(prefix, 'torus', size, 'ping', 'csv')}"
+        fping_csv = f"./data/{generate_filename_with_prefix(prefix, 'torus', size, 'fping', 'csv')}"
+        
+        remove_file_if_exists(converge_csv)
+        remove_file_if_exists(ping_csv)
+        remove_file_if_exists(fping_csv)
 
         # 生成CSV数据（使用 functional 版本）
         progress.update(task, description="生成收敛数据CSV...")
         run_uv_command(
             "experiment_utils/log2csv_functional.py",
             config.test_dir + "/etc",
-            f"./data/converge-ospfv3_torus{size}x{size}.csv",
+            converge_csv,
             description="转换收敛日志为CSV",
         )
 
@@ -472,26 +512,28 @@ def handle_torus_collection(config: Config) -> None:
         run_uv_command(
             "experiment_utils/fping2csv_functional.py",
             config.test_dir + "/etc",
-            f"./data/fping-ospfv3_torus{size}x{size}.csv",
+            fping_csv,
             description="转换fping日志为CSV",
         )
 
         # 生成图表（按尺寸拼接绘图脚本名并调用）
         progress.update(task, description="生成收敛分析图表...")
         converge_draw_script = get_draw_script_path("converge", size)
+        converge_png = f"./results/{generate_filename_with_prefix(prefix, 'torus', size, 'converge', 'png')}"
         run_uv_command(
             converge_draw_script,
-            f"./data/converge-ospfv3_torus{size}x{size}.csv",
-            f"./results/converge-ospfv3_torus{size}x{size}.png",
+            converge_csv,
+            converge_png,
             description="生成收敛分析热力图",
         )
 
         progress.update(task, description="生成中断分析图表...")
         outage_draw_script = get_draw_script_path("fping_outage", size)
+        fping_png = f"./results/{generate_filename_with_prefix(prefix, 'torus', size, 'fping', 'png')}"
         run_uv_command(
             outage_draw_script,
-            f"./data/fping-ospfv3_torus{size}x{size}.csv",
-            f"./results/fping-ospfv3_torus{size}x{size}.png",
+            fping_csv,
+            fping_png,
             description="生成中断分析热力图",
         )
 
@@ -515,7 +557,7 @@ def handle_grid_preparation(config: Config) -> None:
 
         task = progress.add_task("设置网络延迟并启动监控...", total=None)
         configure_network_delay(config)
-        start_monitoring(config, fping_timeout_ms=1000)
+        start_monitoring(config, fping_timeout_ms=9000)
         progress.update(task, description="✅ Grid监控启动完成")
 
     console.print("[bold green]🎉 Grid监控启动成功！[/bold green]")
@@ -542,15 +584,18 @@ def handle_grid_collection(config: Config) -> None:
 
         # 清理旧数据文件
         progress.update(task, description="清理旧数据文件...")
-        remove_file_if_exists(f"./data/converge-ospfv3_grid{size}x{size}.csv")
-        remove_file_if_exists(f"./data/fping-ospfv3_grid{size}x{size}.csv")
+        converge_csv = f"./data/{generate_filename_with_prefix(prefix, 'grid', size, 'converge', 'csv')}"
+        fping_csv = f"./data/{generate_filename_with_prefix(prefix, 'grid', size, 'fping', 'csv')}"
+        
+        remove_file_if_exists(converge_csv)
+        remove_file_if_exists(fping_csv)
 
         # 生成CSV数据（使用 functional 版本）
         progress.update(task, description="生成收敛数据CSV...")
         run_uv_command(
             "experiment_utils/log2csv_functional.py",
             config.test_dir + "/etc",
-            f"./data/converge-ospfv3_grid{size}x{size}.csv",
+            converge_csv,
             description="转换收敛日志为CSV",
         )
 
@@ -558,26 +603,28 @@ def handle_grid_collection(config: Config) -> None:
         run_uv_command(
             "experiment_utils/fping2csv_functional.py",
             config.test_dir + "/etc",
-            f"./data/fping-ospfv3_grid{size}x{size}.csv",
+            fping_csv,
             description="转换fping日志为CSV",
         )
 
         # 生成图表（按尺寸拼接绘图脚本名并调用）
         progress.update(task, description="生成收敛分析图表...")
         converge_draw_script = get_draw_script_path("converge", size)
+        converge_png = f"./results/{generate_filename_with_prefix(prefix, 'grid', size, 'converge', 'png')}"
         run_uv_command(
             converge_draw_script,
-            f"./data/converge-ospfv3_grid{size}x{size}.csv",
-            f"./results/converge-ospfv3_grid{size}x{size}.png",
+            converge_csv,
+            converge_png,
             description="生成收敛分析热力图",
         )
 
         progress.update(task, description="生成中断分析图表...")
         outage_draw_script = get_draw_script_path("fping_outage", size)
+        fping_png = f"./results/{generate_filename_with_prefix(prefix, 'grid', size, 'fping', 'png')}"
         run_uv_command(
             outage_draw_script,
-            f"./data/fping-ospfv3_grid{size}x{size}.csv",
-            f"./results/fping-ospfv3_grid{size}x{size}.png",
+            fping_csv,
+            fping_png,
             description="生成中断分析热力图",
         )
 
