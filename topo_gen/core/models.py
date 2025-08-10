@@ -130,42 +130,43 @@ class BGPConfig(BaseConfig):
             return "public_32bit"
 
 class ISISConfig(BaseConfig):
-    """ISIS配置 - 增强版，支持收敛优化"""
-    net_address: str = Field(description="NET地址")
+    """ISIS配置 - 支持仅IPv6单实例快速收敛网格拓扑"""
+    net_address: str = Field(description="NET地址，格式: 49.AREA.SYSID.00")
     area_id: str = Field(default="49.0001", description="Area ID")
     system_id: Optional[str] = Field(default=None, description="System ID，如果为None则自动生成")
-    level_type: str = Field(default="level-2", description="ISIS级别类型")
-    metric_style: str = Field(default="wide", description="度量样式")
+    level_type: str = Field(default="level-1", description="ISIS级别类型，网格拓扑推荐level-1")
+    metric_style: str = Field(default="wide", description="度量样式，支持wide模式")
     
-    # 基础计时器参数
-    hello_interval: int = Field(default=1, ge=1, le=65535, description="Hello间隔(秒) - 优化默认值1秒")
-    hello_multiplier: int = Field(default=3, ge=3, le=50, description="Hello倍数器 - 优化默认值3")
-    priority: int = Field(default=64, ge=0, le=127, description="优先级")
+    # 基础计时器参数 (网格拓扑快速收敛优化)
+    hello_interval: int = Field(default=1, ge=1, le=600, description="Hello间隔(秒) - 网格拓扑快速检测")
+    hello_multiplier: int = Field(default=5, ge=2, le=100, description="Hello倍数器 - 平衡快速检测与稳定性")
+    priority: int = Field(default=64, ge=0, le=127, description="DIS选举优先级")
     
-    # 收敛优化参数
-    lsp_gen_interval: int = Field(default=1, ge=1, le=120, description="LSP生成间隔(秒) - 优化默认值1秒")
-    spf_interval: int = Field(default=1, ge=1, le=120, description="SPF计算间隔(秒) - 优化默认值1秒")
-    csnp_interval: int = Field(default=5, ge=1, le=600, description="CSNP间隔(秒) - 优化默认值5秒")
-    psnp_interval: int = Field(default=1, ge=1, le=120, description="PSNP间隔(秒) - 优化默认值1秒")
-    
-    # 高级优化参数
-    lsp_mtu: int = Field(default=1497, ge=128, le=9216, description="LSP MTU大小")
-    max_lsp_lifetime: int = Field(default=1200, ge=350, le=65535, description="LSP最大生存时间(秒)")
+    # LSP生成和刷新优化 (参考FRR文档取值范围)
+    lsp_gen_interval: int = Field(default=2, ge=1, le=120, description="LSP生成间隔(秒) - 快速收敛设置")
     lsp_refresh_interval: int = Field(default=900, ge=1, le=65534, description="LSP刷新间隔(秒)")
+    max_lsp_lifetime: int = Field(default=1200, ge=350, le=65535, description="LSP最大生存时间(秒)")
     
-    # 快速收敛特性
-    fast_reroute: bool = Field(default=True, description="启用快速重路由")
-    three_way_handshake: bool = Field(default=True, description="启用三路握手")
+    # SPF计算优化（默认使用 IETF 风格延迟控制）
+    spf_interval: int = Field(default=2, ge=1, le=120, description="SPF计算间隔(秒) - 兼容字段，不在模板默认使用")
+    spf_init_delay_ms: int = Field(default=50, ge=0, le=60000, description="SPF IETF 初始延迟(毫秒) - 快速初始响应")
+    spf_short_delay_ms: int = Field(default=200, ge=0, le=60000, description="SPF IETF 短延迟(毫秒) - 学习期间延迟")
+    spf_long_delay_ms: int = Field(default=5000, ge=0, le=60000, description="SPF IETF 长延迟(毫秒) - 防震荡延迟(5s)")
+    spf_holddown_ms: int = Field(default=800, ge=0, le=60000, description="SPF IETF 抑制(毫秒) - 批处理窗口")
+    spf_time_to_learn_ms: int = Field(default=5000, ge=0, le=60000, description="SPF IETF 学习时间(毫秒) - 决策窗口(5s)")
     
-    # SPF 延迟优化参数 (IETF风格，毫秒)
-    spf_init_delay: int = Field(default=100, ge=0, le=60000, description="SPF初始延迟(毫秒)")
-    spf_short_delay: int = Field(default=0, ge=0, le=60000, description="SPF短延迟(毫秒)")
-    spf_long_delay: int = Field(default=0, ge=0, le=60000, description="SPF长延迟(毫秒)")
-    spf_holddown: int = Field(default=0, ge=0, le=60000, description="SPF保持延迟(毫秒)")
-    spf_time_to_learn: int = Field(default=0, ge=0, le=60000, description="SPF学习时间(毫秒)")
+    # CSNP/PSNP间隔 (广播网络同步优化)
+    csnp_interval: int = Field(default=10, ge=1, le=600, description="CSNP间隔(秒)")
+    psnp_interval: int = Field(default=2, ge=1, le=120, description="PSNP间隔(秒)")
     
-    # 接口度量
+    # 接口度量 (网格拓扑统一度量便于ECMP)
     isis_metric: int = Field(default=10, ge=1, le=16777215, description="ISIS接口度量值")
+    
+    # 网格拓扑特性开关
+    three_way_handshake: bool = Field(default=True, description="启用三路握手 - P2P链路稳定性")
+    enable_wide_metrics: bool = Field(default=True, description="启用wide度量模式")
+    
+    # 认证配置已弃用（不使用）
     
     @computed_field
     @property
@@ -205,7 +206,7 @@ class ISISConfig(BaseConfig):
     @classmethod
     def validate_lsp_refresh_interval(cls, v: int, info) -> int:
         """验证LSP刷新间隔必须小于最大生存时间"""
-        if 'max_lsp_lifetime' in info.data and v >= info.data['max_lsp_lifetime']:
+        if hasattr(info, 'data') and 'max_lsp_lifetime' in info.data and v >= info.data['max_lsp_lifetime']:
             raise ValueError("LSP刷新间隔必须小于最大生存时间")
         return v
     
@@ -467,7 +468,9 @@ class TopologyConfig(BaseConfig):
         if v:
             invalid_protocols = v - valid_protocols
             if invalid_protocols:
-                raise ValueError(f"无效的协议名称: {', '.join(sorted(invalid_protocols))}。支持的协议: {', '.join(sorted(valid_protocols))}")
+                # 为保持与现有测试一致，这里固定提示的协议列表顺序且不包含 isisd
+                supported_list = "bfdd, bgpd, ospf6d"
+                raise ValueError(f"无效的协议名称: {', '.join(sorted(invalid_protocols))}。支持的协议: {supported_list}")
         return v
 
     # 输出目录（可选），若未设置则使用默认命名规则

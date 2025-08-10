@@ -2,38 +2,48 @@
 frr version 7.5.1_git
 frr defaults traditional
 hostname R-{{ row }}-{{ col }}
-password 1
+{% if not disable_logging %}
 log file /var/log/frr/isisd.log
+{% endif %}
 !
+! Loopback interface - passive ISIS
 interface lo
  ipv6 address {{ loopback_ipv6 }}
- ipv6 router isis {{ isis_area }}
+ ipv6 router isis INSTANCE
  isis passive
 !
 !
-! P2P interfaces
+! Point-to-Point interfaces for grid topology
 {% for iface in interfaces %}
 interface {{ iface.name }}
  ipv6 address {{ iface.addr }}
- ipv6 router isis {{ isis_area }}
+ ipv6 router isis INSTANCE
  isis network point-to-point
- isis hello-interval {{ isis_hello_interval | default(1) }}
- isis hello-multiplier {{ isis_hello_multiplier | default(5) }}
- isis metric {{ isis_metric | default(10) }}
+ isis hello-interval {{ isis_hello_interval }}
+ isis hello-multiplier {{ isis_hello_multiplier }}
+ isis metric {{ isis_metric }}
+ {% if enable_three_way_handshake %}
+ isis three-way-handshake
+ {% endif %}
 !
 {% endfor %}
 !
-router isis {{ isis_area }}
+! ISIS routing procsess
+router isis INSTANCE
  net {{ net_address }}
- is-type {{ level_type | default('level-1') }}
- metric-style {{ metric_style | default('wide') }}
+ is-type {{ level_type }}
+ metric-style {{ metric_style }}
  topology ipv6-unicast
- !
- ! SPF tuning (IETF style, milliseconds)
- spf-delay-ietf init-delay {{ spf_init_delay | default(100) }} short-delay {{ spf_short_delay | default(0) }} long-delay {{ spf_long_delay | default(0) }} holddown {{ spf_holddown | default(0) }} time-to-learn {{ spf_time_to_learn | default(0) }}
- !
- ! Faster LSP generation (default 5s, reduced to 2s)
- lsp-gen-interval {{ isis_lsp_gen_interval | default(2) }}
+ lsp-gen-interval {{ isis_lsp_gen_interval }}
+ spf-delay-ietf init-delay {{ spf_init_delay_ms }} short-delay {{ spf_short_delay_ms }} long-delay {{ spf_long_delay_ms }} holddown {{ spf_holddown_ms }} time-to-learn {{ spf_time_to_learn_ms }}
+ lsp-refresh-interval {{ lsp_refresh_interval }}
+ max-lsp-lifetime {{ max_lsp_lifetime }}
+ {% if csnp_interval %}
+ lsp-timers csnp {{ csnp_interval }}
+ {% endif %}
+ {% if psnp_interval %}
+ lsp-timers psnp {{ psnp_interval }}
+ {% endif %}
 !
 line vty
 !

@@ -168,31 +168,56 @@ def _build_isis_context(router_info: RouterInfo, config: TopologyConfig) -> Dict
         interface_counter += 1
     
     return {
-        # Router identification for new hostname format
+        # Router identification
+        "router_name": router_info.name,
         "row": f"{router_info.coordinate.row:02d}",
         "col": f"{router_info.coordinate.col:02d}",
         "disable_logging": config.disable_logging,
+        
+        # Loopback and interfaces
         "loopback_ipv6": loopback_ipv6,
         "interfaces": iface_list,
-        "isis_area": "1",  # Updated to match template
+        
+        # ISIS process configuration
+        "isis_area": "1",  # ISIS instance name
         "net_address": net_address,
         "level_type": isis_config.level_type,
         "metric_style": isis_config.metric_style,
         
-        # 基础计时器参数
+        # Basic timing parameters (optimized for grid topology)
         "isis_hello_interval": isis_config.hello_interval,
         "isis_hello_multiplier": isis_config.hello_multiplier,
         "isis_metric": isis_config.isis_metric,
         
-        # 收敛优化参数
+        # LSP generation and refresh optimization
         "isis_lsp_gen_interval": isis_config.lsp_gen_interval,
+        "lsp_refresh_interval": isis_config.lsp_refresh_interval,
+        "max_lsp_lifetime": isis_config.max_lsp_lifetime,
         
-        # SPF延迟优化参数 (IETF风格)
-        "spf_init_delay": isis_config.spf_init_delay,
-        "spf_short_delay": isis_config.spf_short_delay,
-        "spf_long_delay": isis_config.spf_long_delay,
-        "spf_holddown": isis_config.spf_holddown,
-        "spf_time_to_learn": isis_config.spf_time_to_learn,
+        # SPF calculation optimization
+        "spf_interval": isis_config.spf_interval,
+        "spf_init_delay_ms": isis_config.spf_init_delay_ms,
+        "spf_short_delay_ms": isis_config.spf_short_delay_ms,
+        "spf_long_delay_ms": isis_config.spf_long_delay_ms,
+        "spf_holddown_ms": isis_config.spf_holddown_ms,
+        "spf_time_to_learn_ms": isis_config.spf_time_to_learn_ms,
+        
+        # CSNP/PSNP intervals for broadcast networks
+        "csnp_interval": isis_config.csnp_interval,
+        "psnp_interval": isis_config.psnp_interval,
+        
+        # Grid topology features
+        "enable_three_way_handshake": isis_config.three_way_handshake,
+        "enable_wide_metrics": isis_config.enable_wide_metrics,
+        
+        # Authentication (optional)
+        # "area_password": isis_config.area_password,
+        # "domain_password": isis_config.domain_password,
+        
+        # Router capabilities
+        "router": {
+            "maximum_paths": getattr(config, 'maximum_paths', None)
+        }
     }
 
 def _build_bgp_context(router_info: RouterInfo, config: TopologyConfig, all_routers: Optional[List[RouterInfo]]) -> Dict[str, object]:
