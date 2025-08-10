@@ -287,7 +287,7 @@ def generate_filename_with_prefix(prefix: str, topology_type: str, size: int, fi
     # 生成更有信息量的文件名
     # 格式: {prefix_base}_{file_type}-ospfv3_{topology_type}{size}x{size}.{extension}
     prefix_base = prefix_parts[0] if len(prefix_parts) >= 1 else "exp"
-    filename = f"{prefix_base}-{experiment_id}_{file_type}-ospfv3_{topology_type}{size}x{size}.{extension}"
+    filename = f"{prefix_base}-{experiment_id}_{file_type}_{topology_type}{size}x{size}.{extension}"
     
     return filename
 
@@ -347,7 +347,9 @@ def start_monitoring(config: "Config", fping_timeout_ms: int) -> None:
         "tcpdump", 
         "pcap"
     )
-    tcpdump_cmd = f"tcpdump -i any -w /var/log/frr/{pcap_filename} '(tcp port 179) or (ip6 proto 89) or (ether[20] == 0x83)'"
+    # tcpdump_cmd = f"tcpdump -i any -w /var/log/frr/{pcap_filename} '(tcp port 179) or (ip6 proto 89) or (ether[20] == 0x83)'"
+    # 监听所有流量
+    tcpdump_cmd = f"tcpdump -i any -w /var/log/frr/{pcap_filename} 'not (icmp or icmp6)'"
 
     run_functional_script(
         "execute_on_all",
