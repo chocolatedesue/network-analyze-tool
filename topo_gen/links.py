@@ -32,7 +32,13 @@ class LinkAddress:
 
 
 def generate_link_ipv6(size: int, coord1: Coordinate, coord2: Coordinate) -> LinkAddress:
-    """生成链路IPv6地址对 - 使用/127网络，避免网络地址"""
+    """生成链路IPv6地址对
+
+    策略：
+    - 使用 /126 子网来选择主机地址，统一选择奇数地址，避免看起来像“网络地址”的偶数结尾
+    - 具体选择 ::1 和 ::3
+    - 接口前缀仍使用 /127（点到点常用做法）
+    """
     # 确保节点顺序一致性
     node1_id = coord1.row * size + coord1.col
     node2_id = coord2.row * size + coord2.col
@@ -51,7 +57,7 @@ def generate_link_ipv6(size: int, coord1: Coordinate, coord2: Coordinate) -> Lin
     # 使用2001:db8:2000::/48作为链路地址空间
     base_network = ipaddress.IPv6Network("2001:db8:2000::/48")
 
-    # 每个链路使用/126子网，这样有4个地址可选，我们选择::1和::2
+    # 每个链路使用/126子网，这样有4个地址可选，我们选择::1和::3（均为奇数，规避网络样式地址）
     subnet_bits = 126 - 48  # 78位用于子网编号
     subnet_id = link_id % (2 ** subnet_bits)
 
@@ -71,15 +77,16 @@ def generate_link_ipv6(size: int, coord1: Coordinate, coord2: Coordinate) -> Lin
     link_network_126 = ipaddress.IPv6Network(f"2001:db8:2000:{ipv6_suffix}::/126")
 
     # 对于/126网络，我们有4个地址：::0, ::1, ::2, ::3
-    # 选择::1和::2，避免::0（网络地址）和::3（看起来像广播地址）
+    # 选择::1 和 ::3，避免使用偶数结尾地址
     network_addr = link_network_126.network_address
 
-    # 两个路由器都得到非零结尾的地址
-    addr1 = str(network_addr + 1)  # router1 得到::1
-    addr2 = str(network_addr + 2)  # router2 得到::2
+    # 两个路由器都得到奇数结尾的地址
+    addr1 = str(network_addr + 1)  # router1: ::1
+    addr2 = str(network_addr + 3)  # router2: ::3
 
-    # 但是接口配置仍然使用/127前缀（点对点链路的标准做法）
-    link_network = ipaddress.IPv6Network(f"2001:db8:2000:{ipv6_suffix}::/127")
+    # 接口配置仍然使用/127前缀（点到点常见做法）
+    # 注意：两个地址分别落在相邻的 /127 中，这里 LinkAddress.network 记录 /126 以表达完整链路网段
+    link_network = ipaddress.IPv6Network(f"2001:db8:2000:{ipv6_suffix}::/126")
 
     router1_name = f"router_{coord1.row:02d}_{coord1.col:02d}"
     router2_name = f"router_{coord2.row:02d}_{coord2.col:02d}"

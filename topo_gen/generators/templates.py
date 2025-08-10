@@ -11,6 +11,7 @@ from pathlib import Path
 
 from ..core.types import RouterName, RouterID, IPv6Address
 from ..core.models import RouterInfo, TopologyConfig
+from .renderer import render_template
 
 
 @dataclass
@@ -41,40 +42,22 @@ class ZebraTemplateGenerator(BaseTemplateGenerator):
         super().__init__("zebra.conf")
     
     def generate(self, config: TemplateConfig) -> str:
-        """生成zebra.conf模板 - 按建议文档优化"""
-        logging_section = ""
-        if not config.disable_logging:
-            logging_section = """! Logging (在基础网络配置后)
-log file /var/log/frr/zebra.log debugging
-log commands
-!
-"""
+        """生成zebra.conf模板（通过Jinja2渲染）"""
+        loopback = str(config.loopback_ipv6)
+        if "/128" not in loopback:
+            loopback = f"{loopback}/128"
 
-        return f"""!
-! Zebra configuration for {config.hostname}
-!
-frr version 7.5.1_git
-frr defaults traditional
-!
-hostname {config.hostname}
-password zebra
-enable password zebra
-!
-! Loopback Interface (基础网络配置)
-interface lo
- description "Loopback interface for router ID"
- ipv6 address {config.loopback_ipv6}/128
-!
-! Physical Interfaces (基础网络配置)
-! 在实际部署中，这里会有具体的物理接口配置
-!
-! IP Forwarding (基础网络配置)
-ip forwarding
-ipv6 forwarding
-!
-{logging_section}line vty
-!
-"""
+        return render_template(
+            "zebra.conf.j2",
+            {
+                # 这里沿用历史行为，使用 TemplateConfig.hostname 作为 FRR 的 hostname
+                "router_name": config.hostname,
+                "loopback_ipv6": loopback,
+                # 模板阶段尚未分配物理接口地址，保持为空列表
+                "interfaces": [],
+                "disable_logging": config.disable_logging,
+            },
+        )
 
 
 class StaticTemplateGenerator(BaseTemplateGenerator):
@@ -84,25 +67,14 @@ class StaticTemplateGenerator(BaseTemplateGenerator):
         super().__init__("staticd.conf")
     
     def generate(self, config: TemplateConfig) -> str:
-        """生成staticd.conf模板"""
-        logging_section = ""
-        if not config.disable_logging:
-            logging_section = """log file /var/log/frr/staticd.log debugging
-log commands
-!
-"""
-
-        return f"""!
-! Static routing configuration for {config.hostname}
-!
-frr version 7.5.1_git
-frr defaults traditional
-!
-hostname {config.hostname}
-!
-{logging_section}line vty
-!
-"""
+        """生成staticd.conf模板（通过Jinja2渲染）"""
+        return render_template(
+            "staticd.conf.j2",
+            {
+                "router_name": config.hostname,
+                "disable_logging": config.disable_logging,
+            },
+        )
 
 
 class MgmtTemplateGenerator(BaseTemplateGenerator):
@@ -112,25 +84,14 @@ class MgmtTemplateGenerator(BaseTemplateGenerator):
         super().__init__("mgmtd.conf")
     
     def generate(self, config: TemplateConfig) -> str:
-        """生成mgmtd.conf模板"""
-        logging_section = ""
-        if not config.disable_logging:
-            logging_section = """log file /var/log/frr/mgmtd.log debugging
-log commands
-!
-"""
-
-        return f"""!
-! Management daemon configuration for {config.hostname}
-!
-frr version 7.5.1_git
-frr defaults traditional
-!
-hostname {config.hostname}
-!
-{logging_section}line vty
-!
-"""
+        """生成mgmtd.conf模板（通过Jinja2渲染）"""
+        return render_template(
+            "mgmtd.conf.j2",
+            {
+                "router_name": config.hostname,
+                "disable_logging": config.disable_logging,
+            },
+        )
 
 
 class VtyshTemplateGenerator(BaseTemplateGenerator):
@@ -140,15 +101,13 @@ class VtyshTemplateGenerator(BaseTemplateGenerator):
         super().__init__("vtysh.conf")
     
     def generate(self, config: TemplateConfig) -> str:
-        """生成vtysh.conf模板"""
-        return f"""!
-! Vtysh configuration for {config.hostname}
-!
-no service integrated-vtysh-config
-!
-username root nopassword
-!
-"""
+        """生成vtysh.conf模板（通过Jinja2渲染）"""
+        return render_template(
+            "vtysh.conf.j2",
+            {
+                "router_name": config.hostname,
+            },
+        )
 
 
 class TemplateGeneratorFactory:

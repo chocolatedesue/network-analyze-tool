@@ -293,7 +293,7 @@ def generate_torus(
     dead_interval: int = typer.Option(10, "--dead-interval", help="OSPF Dead间隔"),
     spf_delay: int = typer.Option(50, "--spf-delay", help="SPF延迟"),
     lsa_min_arrival: int = typer.Option(1000, "--lsa-min-arrival", help="OSPF LSA最小到达间隔(毫秒)"),
-    maximum_paths: int = typer.Option(64, "--maximum-paths", help="OSPF ECMP最大路径数"),
+    maximum_paths: int = typer.Option(1, "--maximum-paths", help="OSPF ECMP最大路径数"),
     daemons_off: bool = typer.Option(False, "--daemons-off", help="仅关闭守护进程但仍生成配置文件"),
     bgpd_off: bool = typer.Option(False, "--bgpd-off", help="仅关闭 BGP 守护进程"),
     ospf6d_off: bool = typer.Option(False, "--ospf6d-off", help="仅关闭 OSPF6 守护进程"),

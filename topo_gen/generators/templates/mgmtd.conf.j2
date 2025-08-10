@@ -1,0 +1,15 @@
+! Management daemon configuration for {{ router_name }}
+!
+frr version 7.5.1_git
+frr defaults traditional
+hostname {{ router_name }}
+{% if not disable_logging %}
+!
+! log file /var/log/frr/mgmtd.log debugging
+! log commands
+{% endif %}
+!
+line vty
+!
+
+

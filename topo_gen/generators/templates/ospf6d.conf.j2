@@ -10,10 +10,43 @@ log commands
 debug ospf6 neighbor state
 {% endif %}
 !
-{# 直接渲染已生成的命令行，保持与原逻辑一致 #}
-{% for line in ospf_lines %}
-{{ line }}
+{% for iface in interfaces %}
+interface {{ iface.name }}
+ ipv6 ospf6 area {{ iface.area_id }}
+  ipv6 ospf6 p2p-p2mp connected-prefixes exclude
+  ipv6 ospf6 network point-to-point
+{% if iface.hello_interval %}
+ ipv6 ospf6 hello-interval {{ iface.hello_interval }}
+{% endif %}
+{% if iface.dead_interval %}
+ ipv6 ospf6 dead-interval {{ iface.dead_interval }}
+{% endif %}
+{% if iface.retransmit_interval %}
+ ipv6 ospf6 retransmit-interval {{ iface.retransmit_interval }}
+{% endif %}
+{% if iface.transmit_delay %}
+ ipv6 ospf6 transmit-delay {{ iface.transmit_delay }}
+{% endif %}
+{% if iface.priority is not none %}
+ ipv6 ospf6 priority {{ iface.priority }}
+{% endif %}
+{% if iface.cost is not none %}
+ ipv6 ospf6 cost {{ iface.cost }}
+{% endif %}
+!
 {% endfor %}
+!
+router ospf6
+ ospf6 router-id {{ router.router_id }}
+{% if router.lsa_min_arrival %}
+ timers lsa min-arrival {{ router.lsa_min_arrival }}
+{% endif %}
+{% if router.maximum_paths %}
+ maximum-paths {{ router.maximum_paths }}
+{% endif %}
+{% if router.spf_delay %}
+ timers throttle spf {{ router.spf_delay }} {{ router.spf_delay * 10 }} {{ router.spf_delay * 200 }}
+{% endif %}
 !
 line vty
 !
