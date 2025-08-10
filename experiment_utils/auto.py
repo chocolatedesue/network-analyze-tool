@@ -103,7 +103,7 @@ class Config(BaseModel):
 
 def extract_size_from_prefix(prefix: str) -> Optional[int]:
     """从前缀中提取网格大小"""
-    # 匹配格式如: clab-ospfv3-torus20x20 或 clab-ospfv3-grid5x5
+    # 匹配格式如: clab-isis-torus5x5, clab-ospfv3-torus20x20 或 clab-ospfv3-grid5x5
     match = re.search(r'(torus|grid)(\d+)x(\d+)$', prefix)
     if match:
         width = int(match.group(2))
@@ -150,7 +150,7 @@ def create_config(prefix: str, mode_input: str, vertical_delay: int = 10, horizo
     """创建配置对象"""
     size = extract_size_from_prefix(prefix)
     if not size:
-        raise ValueError(f"无法从前缀 '{prefix}' 中提取大小。期望格式: clab-ospfv3-torus5x5 或 clab-ospfv3-grid5x5")
+        raise ValueError(f"无法从前缀 '{prefix}' 中提取大小。期望格式: clab-isis-torus5x5, clab-ospfv3-torus20x20 或 clab-ospfv3-grid5x5")
 
     topology_type = determine_topology_type(prefix)
     if not topology_type:
@@ -159,7 +159,10 @@ def create_config(prefix: str, mode_input: str, vertical_delay: int = 10, horizo
     # 解析模式
     mode = parse_mode(mode_input)
 
-    test_dir = f"ospfv3_{topology_type.value}{size}x{size}"
+    # clab-isis-torus5x5 prefix -> isis_torus5x5, 尝试从前缀里提取test_dir
+
+    # test_dir = f"ospfv3_{topology_type.value}{size}x{size}"
+    test_dir = prefix.removeprefix("clab-").replace("-", "_")
 
     return Config(
         prefix=prefix,
@@ -630,8 +633,8 @@ def validate_config(config: Config) -> None:
         raise ValueError(f"❌ 配置错误: 模式 {config.mode.value} 用于grid拓扑，但检测到 {config.topology_type.value}")
 
     # 验证前缀格式的完整性
-    if not re.match(r'^clab-ospfv3-(torus|grid)\d+x\d+$', config.prefix):
-        raise ValueError(f"❌ 配置错误: 前缀格式不正确 '{config.prefix}'。期望格式: clab-ospfv3-torus20x20 或 clab-ospfv3-grid5x5")
+    if not re.match(r'^clab-\w+-(torus|grid)\d+x\d+$', config.prefix):
+        raise ValueError(f"❌ 配置错误: 前缀格式不正确 '{config.prefix}'。期望格式: clab-isis-torus5x5, clab-ospfv3-torus20x20 或 clab-ospfv3-grid5x5")
 
     # 验证拓扑类型与前缀的一致性
     prefix_topology = determine_topology_type(config.prefix)
@@ -654,7 +657,7 @@ app = typer.Typer(
 
 @app.command()
 def main(
-    prefix: str = typer.Argument(..., help="节点前缀 (如: clab-ospfv3-torus5x5)"),
+    prefix: str = typer.Argument(..., help="节点前缀 (如: clab-isis-torus5x5 或 clab-ospfv3-torus20x20)"),
     mode: str = typer.Argument(..., help="运行模式: torus-prep | torus-collect | grid-prep | grid-collect | emergency"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="启用详细日志输出"),
     yes: bool = typer.Option(False, "--yes", "-y", help="跳过确认，直接执行"),
@@ -677,13 +680,15 @@ def main(
     [bold]示例:[/bold]
 
     [dim]# 分阶段执行[/dim]
+    • [dim]uv run experiment_utils/auto.py clab-isis-torus5x5 torus-prep[/dim]
+    • [dim]uv run experiment_utils/auto.py clab-isis-torus5x5 torus-collect[/dim]
     • [dim]uv run experiment_utils/auto.py clab-ospfv3-torus20x20 torus-prep[/dim]
     • [dim]uv run experiment_utils/auto.py clab-ospfv3-torus20x20 torus-collect[/dim]
     • [dim]uv run experiment_utils/auto.py clab-ospfv3-grid5x5 grid-prep[/dim]
     • [dim]uv run experiment_utils/auto.py clab-ospfv3-grid5x5 grid-collect[/dim]
 
     [dim]# 容器运行时选择[/dim]
-    • [dim]uv run experiment_utils/auto.py clab-ospfv3-torus20x20 torus-prep --runtime docker[/dim]
+    • [dim]uv run experiment_utils/auto.py clab-isis-torus5x5 torus-prep --runtime docker[/dim]
     • [dim]uv run experiment_utils/auto.py clab-ospfv3-grid5x5 grid-prep --runtime podman[/dim]
 
     [dim]# 网络延迟配置[/dim]
@@ -691,7 +696,7 @@ def main(
     • [dim]uv run experiment_utils/auto.py clab-ospfv3-grid8x8 grid-prep --vertical-delay 50 --horizontal-delay 100[/dim]
 
     [dim]# 应急恢复[/dim]
-    • [dim]uv run experiment_utils/auto.py clab-ospfv3-torus20x20 emergency --runtime podman[/dim]
+    • [dim]uv run experiment_utils/auto.py clab-isis-torus5x5 emergency --runtime podman[/dim]
 
     [bold]选项:[/bold]
     • [green]--yes, -y[/green]              跳过确认，直接执行

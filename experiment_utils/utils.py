@@ -227,3 +227,168 @@ async def run_shell(cmd: str, timeout: int) -> Tuple[int, str, str]:
     err = (result.stderr or b"").decode("utf-8", errors="replace").strip()
     return rc, out, err
 
+
+# 延迟配置相关工具
+
+@dataclass
+class DelayConfig:
+    """延迟配置数据类"""
+    prefix: str
+    size: int
+    vertical_delay: int = 10
+    horizontal_delay: int = 20
+    runtime: Optional[str] = None
+    
+    def __post_init__(self):
+        if self.size <= 0:
+            raise ValueError("网格大小必须 > 0")
+        if self.runtime and not validate_runtime(self.runtime):
+            raise ValueError(f"不支持的容器运行时: {self.runtime}")
+
+
+def build_containerlab_command(base_cmd: str, runtime: Optional[str] = None) -> str:
+    """构建 containerlab 命令，按需注入 --runtime 以兼容 podman/docker。
+
+    规则: 当 runtime 提供时，将其紧随 `containerlab` 之后插入。
+    """
+    if not runtime:
+        return base_cmd
+    parts = base_cmd.split(' ', 1)
+    if len(parts) == 2 and parts[0] == 'containerlab':
+        return f"containerlab --runtime {runtime} {parts[1]}"
+    return f"{base_cmd} --runtime {runtime}"
+
+
+def generate_delay_commands(delay_config: DelayConfig) -> List[str]:
+    """生成所有延迟配置命令"""
+    commands: List[str] = []
+    
+    # 遍历所有节点
+    for row in range(delay_config.size):
+        for col in range(delay_config.size):
+            node_name = create_container_name(delay_config.prefix, row, col)
+            
+            # 竖直接口 - eth1 (north), eth2 (south)
+            for eth in ['eth1', 'eth2']:
+                base_cmd = f"containerlab tools netem set -n {node_name} -i {eth} --delay {delay_config.vertical_delay}ms"
+                cmd = build_containerlab_command(base_cmd, delay_config.runtime)
+                commands.append(cmd)
+            
+            # 水平接口 - eth3 (west), eth4 (east)  
+            for eth in ['eth3', 'eth4']:
+                base_cmd = f"containerlab tools netem set -n {node_name} -i {eth} --delay {delay_config.horizontal_delay}ms"
+                cmd = build_containerlab_command(base_cmd, delay_config.runtime)
+                commands.append(cmd)
+    
+    return commands
+
+
+async def execute_delay_command(cmd: str, config: ExecutionConfig) -> Result[str, str]:
+    """执行延迟配置命令，带重试机制"""
+    try:
+        rc, out, err = await run_shell_with_retry(cmd, config.timeout)
+        if rc == 0:
+            return Result.ok(out)
+        else:
+            return Result.error(f"命令执行失败 (rc={rc}): {err}")
+    except Exception as e:
+        return Result.error(f"执行异常: {str(e)}")
+
+
+async def execute_commands_with_progress(
+    commands: List[str], 
+    exec_config: ExecutionConfig
+) -> List[Result[str, str]]:
+    """并发执行命令，带进度显示"""
+    results: List[Result[str, str]] = [Result.error("未执行")] * len(commands)
+    semaphore = anyio.Semaphore(exec_config.max_workers)
+
+    async def worker(idx: int, cmd: str, reporter: ProgressReporter, task_id: int) -> None:
+        """工作协程"""
+        async with semaphore:
+            if exec_config.verbose:
+                log_info(f"执行: {cmd}")
+            
+            result = await execute_delay_command(cmd, exec_config)
+            results[idx] = result
+            
+            if not result.is_ok():
+                log_warning(f"命令失败: {cmd[:60]}...")
+            
+            reporter.update_task(task_id, 1)
+
+    with ProgressReporter() as reporter:
+        task_id = reporter.create_task("配置网络延迟", len(commands))
+        
+        async with anyio.create_task_group() as tg:
+            for i, cmd in enumerate(commands):
+                tg.start_soon(worker, i, cmd, reporter, task_id)
+
+    return results
+
+
+async def set_torus_delays_async(
+    delay_config: DelayConfig,
+    exec_config: ExecutionConfig,
+    execute: bool = False
+) -> Result[List[str], str]:
+    """
+    异步设置 Torus 拓扑延迟
+    
+    Args:
+        delay_config: 延迟配置
+        exec_config: 执行配置
+        execute: 是否实际执行命令
+        
+    Returns:
+        Result[命令列表, 错误信息]
+    """
+    try:
+        commands = generate_delay_commands(delay_config)
+        
+        log_info(f"=== 生成 {delay_config.size}x{delay_config.size} 延迟配置 ===")
+        log_info(f"竖直环: {delay_config.vertical_delay}ms网卡延迟 -> {delay_config.vertical_delay*2}ms链路延迟 (eth1/eth2)")
+        log_info(f"水平环: {delay_config.horizontal_delay}ms网卡延迟 -> {delay_config.horizontal_delay*2}ms链路延迟 (eth3/eth4)")
+        if delay_config.runtime:
+            log_info(f"容器运行时: {delay_config.runtime}")
+        log_info(f"总计 {len(commands)} 条命令")
+        
+        if not execute:
+            log_warning("预览模式 - 不执行命令")
+            for cmd in commands[:5]:  # 显示前5个作为示例
+                print(f"  {cmd}")
+            if len(commands) > 5:
+                print(f"  ... 还有 {len(commands) - 5} 个命令")
+            log_warning("使用 --execute 参数来实际执行命令")
+            return Result.ok(commands)
+        
+        log_info(f"使用 {exec_config.max_workers} 个并发任务执行命令...")
+        results = await execute_commands_with_progress(commands, exec_config)
+        
+        # 统计结果
+        success_count = sum(1 for result in results if result.is_ok())
+        failed_count = len(results) - success_count
+        
+        if failed_count == 0:
+            log_success(f"全部成功! {success_count}/{len(commands)} 命令执行完成")
+        else:
+            log_warning(f"部分成功: {success_count}/{len(commands)} 成功, {failed_count} 失败")
+            
+            # 显示失败的命令（最多5个）
+            failed_commands = [
+                cmd for result, cmd in zip(results, commands) 
+                if result.is_error()
+            ]
+            for i, cmd in enumerate(failed_commands[:5]):
+                log_error(f"失败 {i+1}: {cmd}")
+            
+            if len(failed_commands) > 5:
+                log_error(f"... 还有 {len(failed_commands) - 5} 个失败命令")
+        
+        return Result.ok(commands)
+        
+    except Exception as e:
+        error_msg = f"配置延迟时发生错误: {str(e)}"
+        log_error(error_msg)
+        return Result.error(error_msg)
+

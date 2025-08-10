@@ -248,7 +248,8 @@ class FileSystemManager:
             nodes[router.name] = {
                 "kind": "linux",
                 # "image": "docker.cnb.cool/jmncnic/frrbgpls/origin:latest",
-                "image": "quay.io/frrouting/frr:10.3.1",
+                # "image": "quay.io/frrouting/frr:10.3.1",
+                "image" : "docker.io/library/test",
                 "binds": [
                     f"etc/{router.name}/conf:/etc/frr",
                     f"etc/{router.name}/log:/var/log/frr",
