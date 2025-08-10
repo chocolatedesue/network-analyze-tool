@@ -311,7 +311,8 @@ def start_monitoring(config: "Config", fping_timeout_ms: int) -> None:
     )
 
     pcap_filename = f"ospfv3_{config.topology_type.value}{config.size}x{config.size}.pcap"
-    tcpdump_cmd = f"tcpdump -i any -w /var/log/frr/{pcap_filename} ip6 proto 89"
+    tcpdump_cmd = f"tcpdump -i any -w /var/log/frr/{pcap_filename} '(tcp port 179) or (ip6 proto 89) or (ether[20] == 0x83)'"
+
     run_functional_script(
         "execute_on_all",
         prefix,
