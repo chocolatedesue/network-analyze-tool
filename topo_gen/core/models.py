@@ -9,7 +9,6 @@ from typing import Dict, List, Optional, Set, Any, ClassVar
 from pydantic import BaseModel, Field, ConfigDict, computed_field, field_validator, model_validator
 from pydantic.networks import IPv6Address, IPv6Network
 from enum import Enum
-from pathlib import Path
 import ipaddress
 
 from .types import (
@@ -60,6 +59,8 @@ class OSPFConfig(BaseConfig):
     retransmit_interval: int = Field(default=5, ge=1, le=3600, description="重传间隔(秒)")
     transmit_delay: int = Field(default=1, ge=1, le=3600, description="传输延迟(秒)")
     authentication_type: Optional[str] = Field(default=None, description="认证类型")
+    lsa_min_arrival: int = Field(default=1000, ge=10, le=60000, description="LSA最小到达间隔(毫秒)")
+    maximum_paths: int = Field(default=64, ge=1, le=128, description="ECMP最大路径数")
 
     @field_validator('dead_interval')
     @classmethod

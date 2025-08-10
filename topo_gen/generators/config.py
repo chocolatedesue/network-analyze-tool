@@ -1,31 +1,22 @@
 """
 现代化配置生成器
-使用函数式编程和类型安全的配置生成
 """
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Callable, Any, Protocol, Set
-from functools import partial
-from dataclasses import dataclass
-from pathlib import Path
-import ipaddress
+from typing import Dict, List, Optional, Protocol, Set
 
 from ..core.types import (
     Coordinate, Direction, NodeType, RouterName, InterfaceName,
-    IPv6Address, ASNumber, RouterID, ConfigBuilder, ConfigPipeline, TopologyType
+    IPv6Address, ASNumber, RouterID, ConfigPipeline, TopologyType,
+    get_direction_for_interface,
 )
 from ..core.models import (
     TopologyConfig, RouterInfo, OSPFConfig, BGPConfig, BFDConfig
 )
-from ..utils.functional import pipe, compose, memoize
+from .renderer import render_template
 
-
-def get_topology_type_str(topology_type) -> str:
-    """获取拓扑类型字符串"""
-    if hasattr(topology_type, 'value'):
-        return topology_type.value
-    return str(topology_type)
+from ..utils.topo import get_topology_type_str
 
 # 配置生成协议
 class ConfigGenerator(Protocol):
@@ -35,163 +26,56 @@ class ConfigGenerator(Protocol):
         """生成配置"""
         ...
 
-# 基础配置构建器
-@dataclass(frozen=True)
-class ConfigSection:
-    """配置段"""
-    name: str
-    content: List[str]
-    
-    def render(self) -> str:
-        """渲染配置段"""
-        if not self.content:
-            return ""
-        
-        lines = [f"# {self.name}", "!"] + self.content + ["!"]
-        return "\n".join(lines)
+def _build_ospf_context(router_info: RouterInfo, config: TopologyConfig) -> Dict[str, object]:
+    """构建 OSPF 模板上下文。"""
+    assert config.ospf_config is not None
+    ospf_config = config.ospf_config
 
-class ConfigBuilder:
-    """配置构建器"""
-    
-    def __init__(self):
-        self.sections: List[ConfigSection] = []
-    
-    def add_section(self, name: str, content: List[str]) -> ConfigBuilder:
-        """添加配置段"""
-        self.sections.append(ConfigSection(name, content))
-        return self
-    
-    def add_header(self, router_name: str, description: str) -> ConfigBuilder:
-        """添加配置头部"""
-        header_content = [
-            f"! {description} for {router_name}",
-            "!",
-            "frr version 7.5.1_git",
-            "frr defaults traditional",
-            "!",
-            f"hostname {router_name}",
-        ]
-        return self.add_section("Header", header_content)
-    
-    def add_footer(self) -> ConfigBuilder:
-        """添加配置尾部"""
-        footer_content = ["line vty", "!"]
-        return self.add_section("Footer", footer_content)
-    
-    def build(self) -> str:
-        """构建最终配置"""
-        return "\n".join(section.render() for section in self.sections)
+    excluded_interfaces: Set[str] = set()
+    if (
+        config.topology_type == TopologyType.SPECIAL
+        and config.bgp_config is not None
+        and router_info.node_type == NodeType.GATEWAY
+    ):
+        excluded_interfaces = _get_ebgp_interfaces(router_info, config)
 
-# 简化的配置生成器函数
-def create_header_section(router_name: str, description: str) -> ConfigSection:
-    """创建头部配置段"""
-    content = [
-        f"! {description} for {router_name}",
-        "!",
-        "frr version 7.5.1_git",
-        "frr defaults traditional",
-        "!",
-        f"hostname {router_name}",
-    ]
-    return ConfigSection("Header", content)
-
-def create_interface_section(interface_name: str, ipv6_addr: IPv6Address) -> ConfigSection:
-    """创建接口配置段"""
-    # 转换为字符串并检查是否包含前缀
-    addr_str = str(ipv6_addr)
-    addr_with_prefix = addr_str if '/' in addr_str else f"{addr_str}/127"
-    content = [
-        f"interface {interface_name}",
-        # f" description \"Point-to-point link interface\"",
-        f" ipv6 address {addr_with_prefix}",
-        # f" no shutdown",
-    ]
-    return ConfigSection(f"Interface {interface_name}", content)
-
-def create_loopback_section(ipv6_addr: IPv6Address) -> ConfigSection:
-    """创建Loopback接口配置段"""
-    # 转换为字符串并确保loopback地址包含/128前缀
-    addr_str = str(ipv6_addr)
-    addr_with_prefix = addr_str if '/128' in addr_str else f"{addr_str}/128"
-    content = [
-        "interface lo",
-        # f" description \"Loopback interface for router ID\"",
-        f" ipv6 address {addr_with_prefix}",
-    ]
-    return ConfigSection("Loopback Interface", content)
-
-def create_ospf_section(
-    router_info: RouterInfo,
-    ospf_config: OSPFConfig,
-    interfaces: Dict[str, str],
-    topology_config: Optional[TopologyConfig] = None
-) -> ConfigSection:
-    """创建OSPF配置段 - 先接口配置，后router定义"""
-    from ..core.types import ensure_ipv6_prefix, get_direction_for_interface
-    from ..core.types import Direction as Dir
-
-    content = []
-
-    # 在Special模式下，对于gateway节点，需要排除用于eBGP的接口
-    excluded_interfaces = set()
-    if (topology_config and
-        topology_config.topology_type == TopologyType.SPECIAL and
-        topology_config.bgp_config is not None and
-        router_info.node_type == NodeType.GATEWAY):
-        excluded_interfaces = _get_ebgp_interfaces(router_info, topology_config)
-
-    # 1. 先配置所有接口（按接口名排序确保一致性）
-    for interface_name in sorted(interfaces.keys()):
-        # 在Special模式下，跳过用于eBGP的接口
+    interfaces_ctx: List[Dict[str, object]] = []
+    for interface_name in sorted(router_info.interfaces.keys()):
         if interface_name in excluded_interfaces:
             continue
-
-        # 基本OSPF6接口设置
-        content.extend([
-            f"interface {interface_name}",
-            f" ipv6 ospf6 area {router_info.area_id}",
-            f" ipv6 ospf6 hello-interval {ospf_config.hello_interval}",
-            f" ipv6 ospf6 dead-interval {ospf_config.dead_interval}",
-            f" ipv6 ospf6 retransmit-interval {ospf_config.retransmit_interval}",
-        ])
-
-        # 根据接口方向设置开销：横向(eth3/eth4)=40，纵向(eth1/eth2)=20
         direction = get_direction_for_interface(interface_name)
-        if direction in (Dir.EAST, Dir.WEST):
-            content.append(" ipv6 ospf6 cost 40")
-        elif direction in (Dir.NORTH, Dir.SOUTH):
-            content.append(" ipv6 ospf6 cost 20")
+        cost: Optional[int] = None
+        if direction in (Direction.EAST, Direction.WEST):
+            cost = 40
+        elif direction in (Direction.NORTH, Direction.SOUTH):
+            cost = 20
         elif ospf_config.cost:
-            # 回退到全局cost（如果提供）
-            content.append(f" ipv6 ospf6 cost {ospf_config.cost}")
+            cost = ospf_config.cost
+        interfaces_ctx.append(
+            {
+                "name": interface_name,
+                "area_id": router_info.area_id,
+                "hello_interval": ospf_config.hello_interval,
+                "dead_interval": ospf_config.dead_interval,
+                "retransmit_interval": ospf_config.retransmit_interval,
+                "transmit_delay": ospf_config.transmit_delay,
+                "priority": ospf_config.priority,
+                "cost": cost,
+            }
+        )
 
-        # 可选优先级
-        if ospf_config.priority is not None:
-            content.append(f" ipv6 ospf6 priority {ospf_config.priority}")
-
-        # 点到点网络与前缀通告设置
-        content.extend([
-            " ipv6 ospf6 p2p-p2mp connected-prefixes exclude",
-            " ipv6 ospf6 network point-to-point",
-        ])
-
-    # 2. Loopback接口配置
-    content.extend([
-        "interface lo",
-        f" ipv6 ospf6 area {router_info.area_id}",
-    ])
-
-    # 3. 最后配置router ospf6（在接口配置之后）
-    content.extend([
-        "router ospf6",
-        f" ospf6 router-id {router_info.router_id}",
-        # f" area {router_info.area_id}",
-        f" timers throttle spf {ospf_config.spf_delay} {ospf_config.spf_delay * 2} {ospf_config.spf_delay * 50}",
-        " timers lsa min-arrival 0",
-        " maximum-paths 1",
-    ])
-
-    return ConfigSection("OSPF6 Configuration", content)
+    return {
+        "router_name": router_info.name,
+        "disable_logging": config.disable_logging,
+        "interfaces": interfaces_ctx,
+        "loopback_area_id": router_info.area_id,
+        "router": {
+            "router_id": router_info.router_id,
+            "spf_delay": ospf_config.spf_delay,
+            "lsa_min_arrival": ospf_config.lsa_min_arrival,
+            "maximum_paths": ospf_config.maximum_paths,
+        },
+    }
 
 def _get_ebgp_interfaces(router_info: RouterInfo, topology_config: TopologyConfig) -> Set[str]:
     """获取用于eBGP的接口列表（Special拓扑中的跨域连接接口）"""
@@ -235,58 +119,54 @@ def _get_ebgp_interfaces(router_info: RouterInfo, topology_config: TopologyConfi
 
     return ebgp_interfaces
 
-def create_bgp_section(
-    router_info: RouterInfo,
-    bgp_config: BGPConfig,
-    all_routers: List[RouterInfo],
-    topology_config: TopologyConfig
-) -> ConfigSection:
-    """创建BGP配置段"""
+def _build_bgp_context(router_info: RouterInfo, config: TopologyConfig, all_routers: Optional[List[RouterInfo]]) -> Dict[str, object]:
+    """构建 BGP 模板上下文。"""
     if not router_info.as_number:
-        return ConfigSection("BGP Configuration", [])
-    
-    content = [
-        f"router bgp {router_info.as_number}",
-        f" bgp router-id {router_info.router_id}",
-        " bgp log-neighbor-changes",
-        " bgp bestpath as-path multipath-relax",
-        " no bgp default ipv4-unicast",
-    ]
-    
-    # 添加邻居配置
-    if get_topology_type_str(topology_config.topology_type) == "special":
-        # Special拓扑的BGP配置逻辑（包含完整的address-family配置）
-        content.extend(_create_special_bgp_neighbors(router_info, all_routers, topology_config))
-    else:
-        # Grid/Torus拓扑的BGP配置逻辑
-        content.extend(_create_regular_bgp_neighbors(router_info, all_routers))
+        return {
+            "router_name": router_info.name,
+            "disable_logging": config.disable_logging,
+            "as_number": None,
+            "router_id": router_info.router_id,
+            "ebgp_interfaces": [],
+            "ibgp_peers": [],
+            "address_family": None,
+        }
 
-        # IPv6地址族配置
-        from ..core.types import extract_ipv6_address, ensure_ipv6_prefix
-        loopback_with_prefix = ensure_ipv6_prefix(str(router_info.loopback_ipv6), 128)
-        address_family_config = [
-            " address-family ipv6 unicast",
-            f"  network {loopback_with_prefix}",
-        ]
+    ebgp_ifaces: List[str] = []
+    if get_topology_type_str(config.topology_type) == "special":
+        ebgp_ifaces = sorted(_get_ebgp_interfaces(router_info, config))
 
-        # 只有在OSPF6启用时才重分发OSPF6路由
-        if topology_config.ospf_config is not None:
-            address_family_config.append("  redistribute ospf6")
+    ibgp_peers: List[str] = []
+    if all_routers:
+        from ..core.types import extract_ipv6_address
+        for r in all_routers:
+            is_router_gateway = (
+                r.node_type == NodeType.GATEWAY
+                or str(r.node_type) == "gateway"
+                or (hasattr(r.node_type, "value") and r.node_type.value == "gateway")
+            )
+            if r.coordinate != router_info.coordinate and r.as_number == router_info.as_number and is_router_gateway:
+                ibgp_peers.append(extract_ipv6_address(str(r.loopback_ipv6)))
 
-        address_family_config.append("  redistribute connected")
-        content.extend(address_family_config)
+    from ..core.types import ensure_ipv6_prefix
+    loopback_with_prefix = ensure_ipv6_prefix(str(router_info.loopback_ipv6), 128)
+    address_family = {
+        "network": loopback_with_prefix,
+        "redistribute_ospf6": config.ospf_config is not None,
+        "redistribute_connected": True,
+        "activate_ebgp_interfaces": ebgp_ifaces,
+        "activate_ibgp_peers": ibgp_peers,
+    }
 
-        # 激活邻居
-        for router in all_routers:
-            if router.coordinate != router_info.coordinate and router.as_number == router_info.as_number:
-                neighbor_ipv6 = extract_ipv6_address(str(router.loopback_ipv6))
-                content.append(f"  neighbor {neighbor_ipv6} activate")
-
-        content.extend([
-            " exit-address-family",
-        ])
-    
-    return ConfigSection("BGP Configuration", content)
+    return {
+        "router_name": router_info.name,
+        "disable_logging": config.disable_logging,
+        "as_number": router_info.as_number,
+        "router_id": router_info.router_id,
+        "ebgp_interfaces": ebgp_ifaces,
+        "ibgp_peers": ibgp_peers,
+        "address_family": address_family,
+    }
 
 def _create_special_bgp_neighbors(
     router_info: RouterInfo,
@@ -362,13 +242,6 @@ def _create_special_bgp_neighbors(
             ])
             ibgp_neighbors.append(router)
 
-    # 调试信息
-    if router_info.coordinate.row == 0 and router_info.coordinate.col == 1:
-        print(f"DEBUG: router_00_01 iBGP neighbors: {len(ibgp_neighbors)}")
-        print(f"DEBUG: all_routers count: {len(all_routers)}")
-        for r in all_routers[:3]:
-            print(f"  Router {r.coordinate}: AS={r.as_number}, type={r.node_type}")
-
     neighbors.append("!")
 
     # 4. 添加IPv6地址族配置
@@ -424,22 +297,7 @@ def _create_regular_bgp_neighbors(
 
     return neighbors
 
-def create_bfd_section(bfd_config: BFDConfig) -> ConfigSection:
-    """创建BFD配置段"""
-    if not bfd_config.enabled:
-        return ConfigSection("BFD Configuration", [])
-    
-    content = [
-        f"bfd",
-        f" profile {bfd_config.profile_name}",
-        f"  detect-multiplier {bfd_config.detect_multiplier}",
-        f"  receive-interval {bfd_config.receive_interval}",
-        f"  transmit-interval {bfd_config.transmit_interval}",
-        f"  echo-mode",
-        f" exit",
-    ]
-    
-    return ConfigSection("BFD Configuration", content)
+# 旧的 BFD 行级构造函数已不再需要
 
 # 具体的配置生成器实现
 class DaemonsConfigGenerator:
@@ -463,13 +321,6 @@ class DaemonsConfigGenerator:
             topo_type in ["grid", "torus"]
         )
 
-        # 调试信息
-        if router_info.coordinate.row == 0 and router_info.coordinate.col == 0:
-            print(f"DEBUG: config.enable_bgp={config.enable_bgp}, is_gateway={is_gateway}, topo_type={topo_type}")
-            print(f"DEBUG: enable_bgp={enable_bgp}")
-            print(f"DEBUG: config.ospf_config is not None={config.ospf_config is not None}")
-            print(f"DEBUG: enable_ospf6={config.ospf_config is not None}")
-
         # 判断是否启用BFD和OSPF6
         enable_bfd = config.enable_bfd
         enable_ospf6 = config.ospf_config is not None
@@ -487,29 +338,14 @@ class DaemonsConfigGenerator:
         if getattr(config, 'bfdd_off', False):
             enable_bfd = False
 
-        content = [
-            "zebra=yes",
-            f"bgpd={'yes' if enable_bgp else 'no'}",
-            "ospfd=no",
-            f"ospf6d={'yes' if enable_ospf6 else 'no'}",
-            "ripd=no",
-            "ripngd=no",
-            "isisd=no",
-            "pimd=no",
-            "ldpd=no",
-            "nhrpd=no",
-            "eigrpd=no",
-            "babeld=no",
-            "sharpd=no",
-            "pbrd=no",
-            f"bfdd={'yes' if enable_bfd else 'no'}",
-            "fabricd=no",
-            "vrrpd=no",
-            "mgmtd=no",
-            "staticd=no",
-        ]
-        
-        return "\n".join(content) + "\n"
+        return render_template(
+            "daemons.j2",
+            {
+                "enable_bgp": enable_bgp,
+                "enable_bfd": enable_bfd,
+                "enable_ospf6": enable_ospf6,
+            },
+        ) + "\n"
 
 class ZebraConfigGenerator:
     """Zebra配置生成器 - 按建议文档优化配置顺序"""
@@ -517,38 +353,26 @@ class ZebraConfigGenerator:
     @staticmethod
     def generate(router_info: RouterInfo, config: TopologyConfig) -> str:
         """生成zebra配置 - 先基础网络、后路由协议的顺序"""
-        builder = ConfigBuilder()
+        # 处理地址前缀
+        loopback = str(router_info.loopback_ipv6)
+        if "/128" not in loopback:
+            loopback = f"{loopback}/128"
 
-        # 添加头部
-        builder.add_header(router_info.name, "Zebra configuration")
-
-        # 1. 基础网络配置 - IP转发（在接口配置后启用）
-        builder.add_section("Forwarding", [
-            "ip forwarding",
-            "ipv6 forwarding",
-        ])
-
-        # 2. 基础网络配置 - Loopback接口（最重要的基础设施）
-        loopback_section = create_loopback_section(router_info.loopback_ipv6)
-        builder.sections.append(loopback_section)
-
-        # 3. 基础网络配置 - 物理接口（按接口名排序确保一致性）
+        iface_list = []
         for interface_name in sorted(router_info.interfaces.keys()):
-            ipv6_addr = router_info.interfaces[interface_name]
-            interface_section = create_interface_section(interface_name, ipv6_addr)
-            builder.sections.append(interface_section)
+            addr_str = str(router_info.interfaces[interface_name])
+            addr_with_prefix = addr_str if "/" in addr_str else f"{addr_str}/127"
+            iface_list.append({"name": interface_name, "addr": addr_with_prefix})
 
-        # 4. 日志配置（在基础网络配置后）
-        if not config.disable_logging:
-            builder.add_section("Logging", [
-                "log file /var/log/frr/zebra.log debugging",
-                "log commands",
-            ])
-
-        # 添加尾部
-        builder.add_footer()
-
-        return builder.build()
+        return render_template(
+            "zebra.conf.j2",
+            {
+                "router_name": router_info.name,
+                "loopback_ipv6": loopback,
+                "interfaces": iface_list,
+                "disable_logging": config.disable_logging,
+            },
+        )
 
 class OSPF6ConfigGenerator:
     """OSPF6配置生成器"""
@@ -560,35 +384,8 @@ class OSPF6ConfigGenerator:
         if not config.ospf_config:
             return ""
 
-        builder = ConfigBuilder()
-
-        # 添加头部
-        builder.add_header(router_info.name, "OSPF6 configuration")
-
-        # 添加日志配置
-        if not config.disable_logging:
-            builder.add_section("Logging", [
-                "log file /var/log/frr/ospf6d.log debugging",
-                "log commands",
-            ])
-
-        # 添加调试配置
-        if not config.disable_logging:
-            builder.add_section("Debug", [
-                "debug ospf6 neighbor state",
-                # "debug ospf6 spf process",
-                # "debug ospf6 route table",
-                # "debug ospf6 lsa unknown",
-            ])
-
-        # 添加OSPF配置
-        ospf_section = create_ospf_section(router_info, config.ospf_config, router_info.interfaces, config)
-        builder.sections.append(ospf_section)
-
-        # 添加尾部
-        builder.add_footer()
-
-        return builder.build()
+        ctx = _build_ospf_context(router_info, config)
+        return render_template("ospf6d.conf.j2", ctx)
 
 class BGPConfigGenerator:
     """BGP配置生成器"""
@@ -599,31 +396,8 @@ class BGPConfigGenerator:
         if not config.enable_bgp or not config.bgp_config:
             return ""
 
-        builder = ConfigBuilder()
-
-        # 添加头部
-        builder.add_header(router_info.name, "BGP configuration")
-
-        # 添加日志配置
-        if not config.disable_logging:
-            builder.add_section("Logging", [
-                "log file /var/log/frr/bgpd.log debugging",
-                "log commands",
-            ])
-
-        # 获取所有Gateway路由器（如果没有提供all_routers，则只包含当前路由器）
-        gateway_routers = []
-        if all_routers:
-            gateway_routers = [r for r in all_routers if r.node_type == NodeType.GATEWAY]
-
-        # 添加BGP配置
-        bgp_section = create_bgp_section(router_info, config.bgp_config, gateway_routers, config)
-        builder.sections.append(bgp_section)
-
-        # 添加尾部
-        builder.add_footer()
-
-        return builder.build()
+        ctx = _build_bgp_context(router_info, config, all_routers)
+        return render_template("bgpd.conf.j2", ctx)
 
 class BFDConfigGenerator:
     """BFD配置生成器"""
@@ -634,26 +408,14 @@ class BFDConfigGenerator:
         if not config.enable_bfd:
             return ""
 
-        builder = ConfigBuilder()
-
-        # 添加头部
-        builder.add_header(router_info.name, "BFD configuration")
-
-        # 添加日志配置
-        if not config.disable_logging:
-            builder.add_section("Logging", [
-                "log file /var/log/frr/bfdd.log debugging",
-                "log commands",
-            ])
-
-        # 添加BFD配置
-        bfd_section = create_bfd_section(config.bfd_config)
-        builder.sections.append(bfd_section)
-
-        # 添加尾部
-        builder.add_footer()
-
-        return builder.build()
+        return render_template(
+            "bfdd.conf.j2",
+            {
+                "router_name": router_info.name,
+                "bfd": config.bfd_config,
+                "disable_logging": config.disable_logging,
+            },
+        )
 
 # 配置生成器工厂
 class ConfigGeneratorFactory:

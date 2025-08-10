@@ -4,8 +4,8 @@
 """
 
 from .config import (
-    ConfigGenerator, ConfigBuilder, ConfigSection,
-    DaemonsConfigGenerator, ZebraConfigGenerator, OSPF6ConfigGenerator,
+    ConfigGenerator,
+    DaemonsConfigGenerator, ZebraConfigGenerator, OSPF6ConfigGenerator, BGPConfigGenerator, BFDConfigGenerator,
     ConfigGeneratorFactory, create_config_pipeline
 )
 
@@ -18,8 +18,8 @@ from .templates import (
 
 __all__ = [
     # 配置生成器
-    'ConfigGenerator', 'ConfigBuilder', 'ConfigSection',
-    'DaemonsConfigGenerator', 'ZebraConfigGenerator', 'OSPF6ConfigGenerator',
+    'ConfigGenerator',
+    'DaemonsConfigGenerator', 'ZebraConfigGenerator', 'OSPF6ConfigGenerator', 'BGPConfigGenerator', 'BFDConfigGenerator',
     'ConfigGeneratorFactory', 'create_config_pipeline',
 
     # 模板生成器

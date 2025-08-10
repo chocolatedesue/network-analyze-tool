@@ -1,0 +1,17 @@
+! BFD configuration for {{ router_name }}
+!
+frr version 7.5.1_git
+frr defaults traditional
+hostname {{ router_name }}
+!
+bfd
+ profile {{ bfd.profile_name }}
+  detect-multiplier {{ bfd.detect_multiplier }}
+  receive-interval {{ bfd.receive_interval }}
+  transmit-interval {{ bfd.transmit_interval }}
+  echo-mode
+ exit
+!
+line vty
+!
+

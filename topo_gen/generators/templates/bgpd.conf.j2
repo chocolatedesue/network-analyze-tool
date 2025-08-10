@@ -1,0 +1,19 @@
+! BGP configuration for {{ router_name }}
+!
+frr version 7.5.1_git
+frr defaults traditional
+hostname {{ router_name }}
+{% if not disable_logging %}
+!
+log file /var/log/frr/bgpd.log debugging
+log commands
+{% endif %}
+!
+{# 直接渲染已生成的命令行，保持与原逻辑一致 #}
+{% for line in bgp_lines %}
+{{ line }}
+{% endfor %}
+!
+line vty
+!
+

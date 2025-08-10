@@ -17,6 +17,7 @@ try:
     from rich.progress import Progress, SpinnerColumn, TextColumn
     from rich.panel import Panel
     from rich.prompt import Confirm
+    import yaml
 except ImportError:
     print("请安装依赖: uv run -m pip install typer rich")
     sys.exit(1)
@@ -28,9 +29,10 @@ from .core.models import (
 )
 from .topology.grid import validate_grid_topology
 from .topology.torus import validate_torus_topology
-from .topology.special import create_dm6_6_sample
 from .engine import generate_topology
-# 清理未使用的导入，提升可读性
+from .topology.special import create_dm6_6_sample
+from .config.settings import AppSettings
+from .utils.logging import configure_logging, get_logger
 
 # 创建应用和控制台
 app = typer.Typer(
@@ -41,7 +43,9 @@ app = typer.Typer(
 )
 console = Console()
 
-# 全局配置
+logger = get_logger(__name__)
+
+# 全局配置（简单数据容器）
 class GlobalConfig:
     verbose: bool = False
     dry_run: bool = False
@@ -80,11 +84,31 @@ def main(
     output_dir: Optional[Path] = typer.Option(
         None, "--output-dir", "-o",
         help="输出目录"
-    )
+    ),
+    config_file: Optional[Path] = typer.Option(
+        None, "--config-file", "-c", help="从配置文件加载设置 (YAML/JSON)"
+    ),
 ):
     """现代化OSPFv3拓扑生成器"""
+    # 初始化日志
+    configure_logging(verbose)
+    logger.info("cli_started", verbose=verbose)
+
+    # 记录全局配置
     global_config.dry_run = dry_run
     global_config.output_dir = output_dir
+
+    # 读取配置文件（若提供）并初始化全局 AppSettings（供 from-config 命令使用）
+    global app_settings
+    if config_file and config_file.exists():
+        try:
+            file_data = yaml.safe_load(config_file.read_text()) or {}
+        except Exception as e:
+            console.print(f"[red]读取配置文件失败: {e}[/red]")
+            raise typer.Exit(1)
+        app_settings = AppSettings(**file_data)
+    else:
+        app_settings = AppSettings()
 
 # 验证函数
 def validate_size(size: int) -> int:
@@ -106,7 +130,6 @@ def display_topology_info(config: TopologyConfig):
     table.add_column("属性", style="cyan")
     table.add_column("值", style="green")
     
-    # 处理拓扑类型显示（可能是枚举或字符串）
     topology_display = config.topology_type.upper() if isinstance(config.topology_type, str) else config.topology_type.value.upper()
     table.add_row("拓扑类型", topology_display)
     table.add_row("网格大小", f"{config.size}x{config.size}")
@@ -120,6 +143,16 @@ def display_topology_info(config: TopologyConfig):
         table.add_row("BGP AS号", str(config.bgp_config.as_number))
     
     console.print(table)
+    logger.info(
+        "topology_info",
+        topology_type=topology_display,
+        size=config.size,
+        total_routers=config.total_routers,
+        total_links=config.total_links,
+        multi_area=config.multi_area,
+        enable_bfd=config.enable_bfd,
+        enable_bgp=config.enable_bgp,
+    )
 
 def display_system_requirements(requirements: SystemRequirements):
     """显示系统需求"""
@@ -143,11 +176,33 @@ def confirm_generation(config: TopologyConfig) -> bool:
         console.print("[yellow]干运行模式 - 仅验证配置[/yellow]")
         return True
     
-    # 处理拓扑类型显示（可能是枚举或字符串）
     topology_display = config.topology_type.upper() if isinstance(config.topology_type, str) else config.topology_type.value.upper()
     return Confirm.ask(
         f"确认生成 {config.total_routers} 个路由器的 {topology_display} 拓扑？"
     )
+
+def _run_with_progress(task_desc: str, config: TopologyConfig):
+    if global_config.dry_run:
+        console.print("[green]配置验证通过 ✓[/green]")
+        logger.info("dry_run_passed")
+        return
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console
+    ) as progress:
+        _ = progress.add_task(task_desc, total=None)
+        logger.info("generation_started", task=task_desc)
+        result = anyio.run(generate_topology, config)
+        if result.success:
+            console.print("[green]生成成功 ✓[/green]")
+            if result.output_dir:
+                console.print(f"输出目录: {result.output_dir}")
+            logger.info("generation_succeeded", output_dir=str(result.output_dir))
+        else:
+            console.print(f"[red]生成失败: {result.message}[/red]")
+            logger.error("generation_failed", message=result.message)
+            raise typer.Exit(1)
 
 # Grid命令
 @app.command("grid")
@@ -162,6 +217,8 @@ def generate_grid(
     hello_interval: int = typer.Option(2, "--hello-interval", help="OSPF Hello间隔"),
     dead_interval: int = typer.Option(10, "--dead-interval", help="OSPF Dead间隔"),
     spf_delay: int = typer.Option(50, "--spf-delay", help="SPF延迟"),
+    lsa_min_arrival: int = typer.Option(1000, "--lsa-min-arrival", help="OSPF LSA最小到达间隔(毫秒)"),
+    maximum_paths: int = typer.Option(64, "--maximum-paths", help="OSPF ECMP最大路径数"),
     daemons_off: bool = typer.Option(False, "--daemons-off", help="仅关闭守护进程但仍生成配置文件"),
     bgpd_off: bool = typer.Option(False, "--bgpd-off", help="仅关闭 BGP 守护进程"),
     ospf6d_off: bool = typer.Option(False, "--ospf6d-off", help="仅关闭 OSPF6 守护进程"),
@@ -182,7 +239,9 @@ def generate_grid(
             ospf_config=OSPFConfig(
                 hello_interval=hello_interval,
                 dead_interval=dead_interval,
-                spf_delay=spf_delay
+                spf_delay=spf_delay,
+                lsa_min_arrival=lsa_min_arrival,
+                maximum_paths=maximum_paths,
             ) if enable_ospf6 else None,
             bgp_config=BGPConfig(as_number=bgp_as) if enable_bgp else None,
             bfd_config=BFDConfig(enabled=enable_bfd),
@@ -218,25 +277,7 @@ def generate_grid(
         raise typer.Exit()
     
     # 生成拓扑
-    if global_config.dry_run:
-        console.print("[green]配置验证通过 ✓[/green]")
-    else:
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=console
-        ) as progress:
-            _ = progress.add_task("生成Grid拓扑...", total=None)
-            
-            # 调用实际的生成逻辑
-            result = anyio.run(generate_topology, config)
-            
-            if result.success:
-                console.print(f"[green]Grid拓扑生成成功 ✓[/green]")
-                console.print(f"输出目录: {result.output_dir}")
-            else:
-                console.print(f"[red]生成失败: {result.message}[/red]")
-                raise typer.Exit(1)
+    _run_with_progress("生成Grid拓扑...", config)
 
 # Torus命令
 @app.command("torus")
@@ -251,6 +292,8 @@ def generate_torus(
     hello_interval: int = typer.Option(2, "--hello-interval", help="OSPF Hello间隔"),
     dead_interval: int = typer.Option(10, "--dead-interval", help="OSPF Dead间隔"),
     spf_delay: int = typer.Option(50, "--spf-delay", help="SPF延迟"),
+    lsa_min_arrival: int = typer.Option(1000, "--lsa-min-arrival", help="OSPF LSA最小到达间隔(毫秒)"),
+    maximum_paths: int = typer.Option(64, "--maximum-paths", help="OSPF ECMP最大路径数"),
     daemons_off: bool = typer.Option(False, "--daemons-off", help="仅关闭守护进程但仍生成配置文件"),
     bgpd_off: bool = typer.Option(False, "--bgpd-off", help="仅关闭 BGP 守护进程"),
     ospf6d_off: bool = typer.Option(False, "--ospf6d-off", help="仅关闭 OSPF6 守护进程"),
@@ -271,7 +314,9 @@ def generate_torus(
             ospf_config=OSPFConfig(
                 hello_interval=hello_interval,
                 dead_interval=dead_interval,
-                spf_delay=spf_delay
+                spf_delay=spf_delay,
+                lsa_min_arrival=lsa_min_arrival,
+                maximum_paths=maximum_paths,
             ) if enable_ospf6 else None,
             bgp_config=BGPConfig(as_number=bgp_as) if enable_bgp else None,
             bfd_config=BFDConfig(enabled=enable_bfd),
@@ -307,25 +352,7 @@ def generate_torus(
         raise typer.Exit()
     
     # 生成拓扑
-    if global_config.dry_run:
-        console.print("[green]配置验证通过 ✓[/green]")
-    else:
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=console
-        ) as progress:
-            _ = progress.add_task("生成Torus拓扑...", total=None)
-            
-            # 调用实际的生成逻辑
-            result = anyio.run(generate_topology, config)
-            
-            if result.success:
-                console.print(f"[green]Torus拓扑生成成功 ✓[/green]")
-                console.print(f"输出目录: {result.output_dir}")
-            else:
-                console.print(f"[red]生成失败: {result.message}[/red]")
-                raise typer.Exit(1)
+    _run_with_progress("生成Torus拓扑...", config)
 
 # Special命令
 @app.command("special")
@@ -338,6 +365,8 @@ def generate_special(
     hello_interval: int = typer.Option(2, "--hello-interval", help="OSPF Hello间隔"),
     dead_interval: int = typer.Option(10, "--dead-interval", help="OSPF Dead间隔"),
     spf_delay: int = typer.Option(50, "--spf-delay", help="SPF延迟"),
+    lsa_min_arrival: int = typer.Option(1000, "--lsa-min-arrival", help="OSPF LSA最小到达间隔(毫秒)"),
+    maximum_paths: int = typer.Option(64, "--maximum-paths", help="OSPF ECMP最大路径数"),
     enable_bfd: bool = typer.Option(False, "--enable-bfd", help="启用BFD"),
     daemons_off: bool = typer.Option(False, "--daemons-off", help="仅关闭守护进程但仍生成配置文件"),
     bgpd_off: bool = typer.Option(False, "--bgpd-off", help="仅关闭 BGP 守护进程"),
@@ -371,7 +400,9 @@ def generate_special(
             ospf_config=OSPFConfig(
                 hello_interval=hello_interval,
                 dead_interval=dead_interval,
-                spf_delay=spf_delay
+                spf_delay=spf_delay,
+                lsa_min_arrival=lsa_min_arrival,
+                maximum_paths=maximum_paths,
             ) if enable_ospf6 else None,
             bgp_config=BGPConfig(as_number=bgp_as) if enable_bgp else None,
             bfd_config=BFDConfig(enabled=enable_bfd),
@@ -394,8 +425,6 @@ def generate_special(
     special_table = Table(title="Special拓扑详情")
     special_table.add_column("属性", style="cyan")
     special_table.add_column("值", style="green")
-    
-    # 处理基础拓扑显示（可能是枚举或字符串）
     base_topology_display = base_topology.upper() if isinstance(base_topology, str) else base_topology.value.upper()
     special_table.add_row("基础拓扑", base_topology_display)
     special_table.add_row("包含基础连接", "是" if include_base else "否")
@@ -404,7 +433,6 @@ def generate_special(
     special_table.add_row("网关节点数", str(len(special_config.gateway_nodes)))
     special_table.add_row("内部桥接边数", str(len(special_config.internal_bridge_edges)))
     special_table.add_row("Torus桥接边数", str(len(special_config.torus_bridge_edges)))
-    
     console.print(special_table)
     
     # 计算系统需求
@@ -417,25 +445,67 @@ def generate_special(
         raise typer.Exit()
     
     # 生成拓扑
-    if global_config.dry_run:
-        console.print("[green]配置验证通过 ✓[/green]")
-    else:
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=console
-        ) as progress:
-            _ = progress.add_task("生成Special拓扑...", total=None)
-            
-            # 调用实际的生成逻辑
-            result = anyio.run(generate_topology, config)
-            
-            if result.success:
-                console.print(f"[green]Special拓扑生成成功 ✓[/green]")
-                console.print(f"输出目录: {result.output_dir}")
-            else:
-                console.print(f"[red]生成失败: {result.message}[/red]")
-                raise typer.Exit(1)
+    _run_with_progress("生成Special拓扑...", config)
+
+
+# 从配置文件/环境生成命令
+@app.command("from-config")
+def generate_from_config(
+    yes: bool = typer.Option(False, "--yes", "-y", help="跳过确认")
+):
+    """基于配置文件/环境变量生成拓扑。
+
+    优先级：命令行（仅本命令的 --yes） > 配置文件内容 > 环境变量 > 默认值。
+    使用 --config-file 指定文件（支持 YAML/JSON）。
+    """
+
+    # 构造 TopologyConfig
+    try:
+        topo_type = app_settings.topology
+        ospf_cfg = OSPFConfig(
+            hello_interval=app_settings.hello_interval,
+            dead_interval=app_settings.dead_interval,
+            spf_delay=app_settings.spf_delay,
+            lsa_min_arrival=app_settings.lsa_min_arrival,
+            maximum_paths=app_settings.maximum_paths,
+        ) if app_settings.enable_ospf6 else None
+
+        bgp_cfg = BGPConfig(as_number=app_settings.bgp_as) if app_settings.enable_bgp else None
+        bfd_cfg = BFDConfig(enabled=app_settings.enable_bfd)
+
+        config = TopologyConfig(
+            size=app_settings.size,
+            topology_type=topo_type,
+            multi_area=app_settings.multi_area,
+            area_size=app_settings.area_size,
+            ospf_config=ospf_cfg,
+            bgp_config=bgp_cfg,
+            bfd_config=bfd_cfg,
+            daemons_off=app_settings.daemons_off,
+            bgpd_off=app_settings.bgpd_off,
+            ospf6d_off=app_settings.ospf6d_off,
+            bfdd_off=app_settings.bfdd_off,
+            dummy_gen_protocols=app_settings.dummy_gen_protocols,
+            disable_logging=app_settings.disable_logging,
+            output_dir=app_settings.output_dir,
+        )
+    except Exception as e:
+        console.print(f"[red]配置验证失败: {e}[/red]")
+        raise typer.Exit(1)
+
+    # 展示信息与系统需求
+    display_topology_info(config)
+    requirements = SystemRequirements.calculate_for_topology(config)
+    display_system_requirements(requirements)
+
+    # 确认
+    if not yes and not confirm_generation(config):
+        console.print("[yellow]已取消[/yellow]")
+        raise typer.Exit()
+
+    # 生成
+    task_desc = f"生成{(config.topology_type.value if hasattr(config.topology_type, 'value') else str(config.topology_type)).upper()}拓扑..."
+    _run_with_progress(task_desc, config)
 
 
 
