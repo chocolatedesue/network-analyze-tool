@@ -3,6 +3,14 @@ revision = 2
 requires-python = ">=3.12"
 
 [[package]]
+name = "aenum"
+version = "3.1.16"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e3/52/6ad8f63ec8da1bf40f96996d25d5b650fdd38f5975f8c813732c47388f18/aenum-3.1.16-py3-none-any.whl", hash = "sha256:9035092855a98e41b66e3d0998bd7b96280e85ceb3a04cc035636138a1943eaf", size = 165627, upload-time = "2025-04-25T03:17:58.89Z" },
+]
+
+[[package]]
 name = "annotated-types"
 version = "0.7.0"
 source = { registry = "https://pypi.org/simple" }
@@ -65,6 +73,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/e3/ee/adda3d46d4a9120772fae6de454c8495603c37c4c3b9c60f25b1ab6401fe/black-25.1.0-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:030b9759066a4ee5e5aca28c3c77f9c64789cdd4de8ac1df642c40b708be6171", size = 1782926, upload-time = "2025-01-29T04:18:58.564Z" },
     { url = "https://files.pythonhosted.org/packages/cc/64/94eb5f45dcb997d2082f097a3944cfc7fe87e071907f677e80788a2d7b7a/black-25.1.0-cp313-cp313-win_amd64.whl", hash = "sha256:a22f402b410566e2d1c950708c77ebf5ebd5d0d88a6a2e87c86d9fb48afa0d18", size = 1442613, upload-time = "2025-01-29T04:19:27.63Z" },
     { url = "https://files.pythonhosted.org/packages/09/71/54e999902aed72baf26bca0d50781b01838251a462612966e9fc4891eadd/black-25.1.0-py3-none-any.whl", hash = "sha256:95e8176dae143ba9097f351d174fdaf0ccd29efb414b362ae3fd72bf0f710717", size = 207646, upload-time = "2025-01-29T04:15:38.082Z" },
+]
+
+[[package]]
+name = "chardet"
+version = "5.2.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f3/0d/f7b6ab21ec75897ed80c17d79b15951a719226b9fababf1e40ea74d69079/chardet-5.2.0.tar.gz", hash = "sha256:1b3b6ff479a8c414bc3fa2c0852995695c4a026dcd6d0633b2dd092ca39c1cf7", size = 2069618, upload-time = "2023-08-01T19:23:02.662Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/38/6f/f5fbc992a329ee4e0f288c1fe0e2ad9485ed064cac731ed2fe47dcc38cbf/chardet-5.2.0-py3-none-any.whl", hash = "sha256:e1cf59446890a00105fe7b7912492ea04b6e6f06d4b742b2c788469e34c82970", size = 199385, upload-time = "2023-08-01T19:23:00.661Z" },
 ]
 
 [[package]]
@@ -225,6 +242,16 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/a9/95/a3dbbb5028f35eafb79008e7522a75244477d2838f38cbb722248dabc2a8/cycler-0.12.1.tar.gz", hash = "sha256:88bb128f02ba341da8ef447245a9e138fae777f6a23943da4540077d3601eb1c", size = 7615, upload-time = "2023-10-07T05:32:18.335Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e7/05/c19819d5e3d95294a6f5947fb9b9629efb316b96de511b418c53d245aae6/cycler-0.12.1-py3-none-any.whl", hash = "sha256:85cef7cff222d8644161529808465972e51340599459b8ac3ccbac5a854e0d30", size = 8321, upload-time = "2023-10-07T05:32:16.783Z" },
+]
+
+[[package]]
+name = "dictdumper"
+version = "0.8.4.post6"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/9d/79/516e17cb2445d79daa4f7f4dd6330cc014e997a4bf0e0d8b2817f2c150a5/dictdumper-0.8.4.post6.tar.gz", hash = "sha256:7826615acb3db3e9bbd493a950d7a06edc033a091ce9da8b65c69fa940f495b0", size = 76180, upload-time = "2024-11-03T20:49:58.693Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fe/db/74224dc7f5092a43c376da3f76f1d82744b7ab5b16998ccb46aaaea221d4/dictdumper-0.8.4.post6-cp312-none-any.whl", hash = "sha256:1b04a2e7c989f059ce99b9a9cf614403b311e48efe26b5100dec326a472da088", size = 18519, upload-time = "2024-11-03T20:49:56.887Z" },
+    { url = "https://files.pythonhosted.org/packages/9d/80/a117306c161eeedd669a56de1d84fe32981ea9a64272443dedd8c9377bb8/dictdumper-0.8.4.post6-cp313-none-any.whl", hash = "sha256:fcdca7909cdd142ec21d18bcbe5162aceaf00e4bfe502747b12676cf3b77d391", size = 18519, upload-time = "2024-11-03T20:50:05.042Z" },
 ]
 
 [[package]]
@@ -892,6 +919,22 @@ wheels = [
 ]
 
 [[package]]
+name = "pypcapkit"
+version = "1.3.5.post25"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "aenum" },
+    { name = "chardet" },
+    { name = "dictdumper" },
+    { name = "tbtrim" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/62/0f/2d377d694dce085ea0951ebfae8ef2d592c5da15dbc7d3e43bda1edeccb7/pypcapkit-1.3.5.post25.tar.gz", hash = "sha256:cdc691a362ad05af4d8ee1165a850a64399ece6a89e0497c6aa03a439c043098", size = 668965, upload-time = "2025-07-26T10:07:55.693Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/83/5b/860d445edce90caab411ecc4737345dc0d6424deba02001a34d3352433ac/pypcapkit-1.3.5.post25-cp312-none-any.whl", hash = "sha256:8820dc25fed7212b27bee03c0dc72757ee29155d6ba4c72ff1d1e98e95fdb8af", size = 973625, upload-time = "2025-07-26T10:08:02.478Z" },
+    { url = "https://files.pythonhosted.org/packages/66/7d/8a3db5978eddb028981201018931cc4cf90b0a86b0a92c79f5be0f166fec/pypcapkit-1.3.5.post25-cp313-none-any.whl", hash = "sha256:d0f95415bb9149280c304344b16895e8b5c6c0a0c886069a5a91e7b016c636e3", size = 973625, upload-time = "2025-07-26T10:07:53.828Z" },
+]
+
+[[package]]
 name = "pyshark"
 version = "0.6"
 source = { registry = "https://pypi.org/simple" }
@@ -1024,6 +1067,7 @@ dependencies = [
     { name = "pandas" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
+    { name = "pypcapkit" },
     { name = "pyshark" },
     { name = "pyyaml" },
     { name = "rich" },
@@ -1067,6 +1111,7 @@ requires-dist = [
     { name = "pandas", specifier = ">=2.3.1" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "pydantic-settings", specifier = ">=2.5.2" },
+    { name = "pypcapkit", specifier = ">=1.3.5.post25" },
     { name = "pyshark", specifier = ">=0.6.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.21.0" },
@@ -1141,6 +1186,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/79/b9/6e672db4fec07349e7a8a8172c1a6ae235c58679ca29c3f86a61b5e59ff3/structlog-25.4.0.tar.gz", hash = "sha256:186cd1b0a8ae762e29417095664adf1d6a31702160a46dacb7796ea82f7409e4", size = 1369138, upload-time = "2025-06-02T08:21:12.971Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a0/4a/97ee6973e3a73c74c8120d59829c3861ea52210667ec3e7a16045c62b64d/structlog-25.4.0-py3-none-any.whl", hash = "sha256:fe809ff5c27e557d14e613f45ca441aabda051d119ee5a0102aaba6ce40eed2c", size = 68720, upload-time = "2025-06-02T08:21:11.43Z" },
+]
+
+[[package]]
+name = "tbtrim"
+version = "0.3.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/85/62/89756f5d2d61691591c4293fd4cc1fbb3aab1466251c7319fe60dd08fb27/tbtrim-0.3.1.tar.gz", hash = "sha256:b6285ac02e9a7b78fab97de65668fe2def0f5d8783b0e0dfcb4b7c0a635b3d11", size = 3493, upload-time = "2020-01-16T01:38:40.87Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/07/21/61b192799083492255efc53950ba47317087e1a3d2b5e767c29f71c8c4ca/tbtrim-0.3.1-py2.py3-none-any.whl", hash = "sha256:48265ad3aeee3bfcc6f0972f6fad623bd99302dce616e1d451663649b50fde19", size = 4427, upload-time = "2020-01-16T01:38:39.812Z" },
 ]
 
 [[package]]
