@@ -29,8 +29,7 @@ import typer
 
 """Allow running as a standalone script by resolving local imports."""
 sys.path.append(str(Path(__file__).resolve().parent.parent))
-from experiment_utils.utils import console, log_info, log_success, log_warning, log_error
-
+from utils import console, log_info, log_success, log_warning, log_error
 
 @dataclass(frozen=True)
 class PlotConfig:

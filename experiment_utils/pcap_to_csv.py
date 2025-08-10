@@ -66,6 +66,12 @@ class ProtocolType(Enum):
     UNKNOWN = "unknown"
 
 
+class EngineType(Enum):
+    AUTO = "auto"
+    SCAPY = "scapy"
+    PYSHARK = "pyshark"
+
+
 # ---------------
 # Filter functions
 # ---------------
@@ -323,6 +329,103 @@ def read_filtered_packets(
     return rows
 
 
+def _pyshark_display_filter_for_protocol(protocol_type: ProtocolType) -> str:
+    if protocol_type == ProtocolType.ISIS:
+        return "isis"
+    if protocol_type == ProtocolType.OSPF6:
+        # Wireshark uses 'ospf' for both v2 and v3; narrow to v3 if needed: 'ospf.version == 3'
+        return "ospf"
+    if protocol_type == ProtocolType.BGP:
+        return "bgp"
+    return ""
+
+
+def read_filtered_packets_pyshark(
+    pcap_path: Path,
+    protocol_type: ProtocolType,
+) -> List[Tuple[float, int]]:
+    """Use PyShark (TShark/Wireshark backend) to filter packets and extract (timestamp, size).
+
+    Requires Wireshark/TShark to be installed and available on PATH.
+    """
+    try:
+        import pyshark  # type: ignore
+    except Exception as e:
+        log_error(
+            "PyShark is not installed. Install with 'uv add pyshark'. "
+            f"Original error: {e}"
+        )
+        raise
+
+    display_filter = _pyshark_display_filter_for_protocol(protocol_type)
+    if not display_filter:
+        return []
+
+    rows: List[Tuple[float, int]] = []
+
+    # Try to locate tshark if not on PATH (Windows common installs)
+    tshark_path: Optional[str] = None
+    try:
+        import shutil
+        tshark_in_path = shutil.which("tshark")
+        if tshark_in_path:
+            tshark_path = tshark_in_path
+        else:
+            candidate_paths = [
+                r"C:\\Program Files\\Wireshark\\tshark.exe",
+                r"C:\\Program Files (x86)\\Wireshark\\tshark.exe",
+            ]
+            for c in candidate_paths:
+                if Path(c).exists():
+                    tshark_path = c
+                    break
+    except Exception:
+        tshark_path = None
+
+    # Use JSON for speed/robustness; keep_packets=False to stream
+    capture_kwargs = dict(
+        input_file=str(pcap_path),
+        display_filter=display_filter,
+        keep_packets=False,
+        use_json=True,
+    )
+    if tshark_path:
+        capture_kwargs["tshark_path"] = tshark_path
+
+    capture = pyshark.FileCapture(**capture_kwargs)
+    try:
+        for pkt in capture:
+            # Timestamp: prefer sniff_timestamp for direct float seconds
+            try:
+                ts = float(getattr(pkt, "sniff_timestamp", None) or 0.0)
+                if ts == 0.0 and hasattr(pkt, "sniff_time") and pkt.sniff_time is not None:
+                    ts = pkt.sniff_time.timestamp()
+            except Exception:
+                # Skip packet if timestamp can't be parsed
+                continue
+
+            # Length: try frame_info.len then cap_len, both are strings
+            size_int = 0
+            try:
+                frame_info = getattr(pkt, "frame_info", None)
+                if frame_info is not None:
+                    size_str = getattr(frame_info, "len", None) or getattr(frame_info, "cap_len", None)
+                    if size_str is not None:
+                        size_int = int(size_str)
+            except Exception:
+                size_int = 0
+
+            if ts and size_int:
+                rows.append((ts, size_int))
+    finally:
+        try:
+            capture.close()
+        except Exception:
+            pass
+
+    return rows
+
+
 def write_csv(
     output_csv: Path,
     rows: List[Tuple[float, int]],
@@ -345,6 +448,7 @@ def pcap_to_csv(
     forced_protocol: Optional[ProtocolType] = None,
     autodetect: bool = False,
     streaming: bool = True,
+    engine: EngineType = EngineType.AUTO,
 ) -> None:
     if not pcap_path.exists():
         log_error(f"File not found: {pcap_path}")
@@ -365,7 +469,25 @@ def pcap_to_csv(
 
     log_info(f"Protocol filter: {PROTOCOL_REGISTRY[ptype].display_name}")
 
-    rows = read_filtered_packets(pcap_path, ptype, use_streaming=streaming)
+    rows: List[Tuple[float, int]] = []
+
+    # Primary engine selection
+    if engine in (EngineType.AUTO, EngineType.SCAPY):
+        rows = read_filtered_packets(pcap_path, ptype, use_streaming=streaming)
+
+        # Optional fallback: if IS-IS and Scapy found none, try PyShark (Wireshark-compatible)
+        if engine == EngineType.AUTO and ptype == ProtocolType.ISIS and len(rows) == 0:
+            log_warning("Scapy found 0 IS-IS packets; retrying with PyShark (Wireshark engine)...")
+            try:
+                rows = read_filtered_packets_pyshark(pcap_path, ptype)
+            except Exception as e:
+                log_warning(f"PyShark fallback failed: {e}")
+
+    elif engine == EngineType.PYSHARK:
+        rows = read_filtered_packets_pyshark(pcap_path, ptype)
+    else:
+        log_warning(f"Unknown engine {engine}; defaulting to Scapy")
+        rows = read_filtered_packets(pcap_path, ptype, use_streaming=streaming)
 
     metadata = {
         "source_pcap": str(pcap_path),
@@ -390,6 +512,11 @@ def pcap2csv(
         help="Force protocol: isis | ospf6 | bgp",
         case_sensitive=False,
     ),
+    engine: str = typer.Option(
+        "auto",
+        "--engine",
+        help="Decode engine: auto | scapy | pyshark (Wireshark backend)",
+    ),
     autodetect: bool = typer.Option(
         False, "--autodetect", help="Detect protocol by PCAP content"
     ),
@@ -406,12 +533,23 @@ def pcap2csv(
         else:
             log_warning(f"Unknown protocol '{protocol}'. Falling back to filename/autodetect.")
 
+    # Engine selection
+    engine_type: EngineType = EngineType.AUTO
+    if engine:
+        normalized_engine = engine.strip().lower()
+        name_to_engine = {e.value: e for e in EngineType}
+        if normalized_engine in name_to_engine:
+            engine_type = name_to_engine[normalized_engine]
+        else:
+            log_warning(f"Unknown engine '{engine}'. Falling back to 'auto'.")
+
     pcap_to_csv(
         pcap_path=pcap,
         output_csv=output_csv,
         forced_protocol=forced,
         autodetect=autodetect,
         streaming=not no_streaming,
+        engine=engine_type,
     )
 
 
