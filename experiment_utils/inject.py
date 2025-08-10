@@ -762,8 +762,8 @@ def create_typer_app():
     @app.command()
     def main(
         prefix: str = typer.Argument(..., help="容器前缀 (如: clab-ospfv3-torus5x5)"),
-        injection_type: str = typer.Option("netem", "-t", "--type", help="注入类型 (link/netem)"),
-        max_executions: int = typer.Option(6, "--max-executions", help="最大执行周期数"),
+        injection_type: str = typer.Option("link", "-t", "--type", help="注入类型 (link/netem)"),
+        max_executions: int = typer.Option(2, "--max-executions", help="最大执行周期数"),
         min_interval: float = typer.Option(13.0, "--min-interval", help="最小间隔时间(秒)"),
         max_interval: float = typer.Option(20.0, "--max-interval", help="最大间隔时间(秒)"),
         failure_ratio: float = typer.Option(0.1, "--failure-ratio", help="故障链路比例 (0-1)"),

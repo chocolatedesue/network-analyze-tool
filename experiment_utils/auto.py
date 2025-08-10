@@ -7,10 +7,6 @@ Python版本的自动化网络拓扑测试脚本
     uv run experiment_utils/auto.py <prefix> <mode>
 
 可用模式:
-    auto - 智能工作流 (自动检测拓扑类型)
-    full-grid - 完整Grid工作流
-    full-torus - 完整Torus工作流
-    generate - 生成拓扑
     torus-prep - Torus准备阶段
     torus-collect - Torus收集阶段
     grid-prep - Grid准备阶段
@@ -23,7 +19,6 @@ Python版本的自动化网络拓扑测试脚本
 
 import os
 import re
-import shutil
 import subprocess
 import sys
 import time
@@ -179,16 +174,13 @@ def create_config(prefix: str, mode_input: str, vertical_delay: int = 10, horizo
 
 
 def build_containerlab_command(base_cmd: str, runtime: Optional[str] = None) -> str:
-    """构建containerlab命令，可选择添加runtime参数"""
-    if runtime:
-        # 在containerlab后面插入--runtime参数
-        parts = base_cmd.split(' ', 1)  # 分割为 'containerlab' 和剩余部分
-        if len(parts) == 2 and parts[0] == 'containerlab':
-            return f"containerlab --runtime {runtime} {parts[1]}"
-        else:
-            # 如果命令格式不符合预期，直接添加到末尾
-            return f"{base_cmd} --runtime {runtime}"
-    return base_cmd
+    """构建containerlab命令，可选择添加runtime参数（保留以兼容既有脚本）。"""
+    if not runtime:
+        return base_cmd
+    parts = base_cmd.split(' ', 1)
+    if len(parts) == 2 and parts[0] == 'containerlab':
+        return f"containerlab --runtime {runtime} {parts[1]}"
+    return f"{base_cmd} --runtime {runtime}"
 
 
 def run_command(cmd: str, check: bool = True, shell: bool = True, description: str = "") -> subprocess.CompletedProcess:
@@ -248,6 +240,123 @@ def run_functional_script(script_name: str, *args: str, description: str = "") -
     return run_command(cmd, description=description)
 
 
+def get_draw_script_path(draw_type: str, size: int) -> str:
+    """根据拓扑尺寸拼接绘图脚本路径，并检查脚本是否存在。
+
+    draw_type: "converge" | "fping_outage"
+    size: N (生成 ..._{N}x{N}.py)
+    """
+    if draw_type == "converge":
+        script_name = f"converge_draw_{size}x{size}.py"
+    elif draw_type == "fping_outage":
+        script_name = f"fping_outage_draw_{size}x{size}.py"
+    else:
+        raise ValueError(f"未知的绘图类型: {draw_type}")
+
+    script_path = os.path.join("experiment_utils", "draw", script_name)
+    if not os.path.exists(script_path):
+        raise FileNotFoundError(f"未找到绘图脚本: {script_path}，请确认该尺寸是否受支持")
+    return script_path
+
+
+# 组件函数
+def configure_network_delay(config: "Config") -> None:
+    """配置网络延迟。"""
+    prefix = config.prefix
+    size_str = str(config.size)
+
+    delay_args = [
+        "simple_delay",
+        prefix,
+        size_str,
+        "--vertical",
+        str(config.vertical_delay),
+        "--horizontal",
+        str(config.horizontal_delay),
+    ]
+    if config.runtime:
+        delay_args.extend(["--runtime", config.runtime])
+    delay_args.append("--execute")
+    run_functional_script(*delay_args, description="配置网络延迟")
+
+
+def start_monitoring(config: "Config", fping_timeout_ms: int) -> None:
+    """在所有容器上启动 fping、收敛分析器和数据包捕获。"""
+    prefix = config.prefix
+    size_str = str(config.size)
+
+    fping_cmd = rf'sudo sh -c "fping -6 -l -o -p 10 -r 0 -e -t {fping_timeout_ms} -Q 1 2001:db8:1000:0000:0003:0002::1 &> /var/log/frr/fping.log"'
+    run_functional_script(
+        "execute_on_all",
+        prefix,
+        size_str,
+        fping_cmd,
+        "--detach",
+        "--execute",
+        description="启动fping网络监控",
+    )
+
+    analyzer_cmd = "/opt/scripts/ConvergenceAnalyzer --threshold 5000 --log-path /var/log/frr/route.json"
+    run_functional_script(
+        "execute_on_all",
+        prefix,
+        size_str,
+        analyzer_cmd,
+        "--detach",
+        "--execute",
+        description="启动路由收敛分析器",
+    )
+
+    pcap_filename = f"ospfv3_{config.topology_type.value}{config.size}x{config.size}.pcap"
+    tcpdump_cmd = f"tcpdump -i any -w /var/log/frr/{pcap_filename} ip6 proto 89"
+    run_functional_script(
+        "execute_on_all",
+        prefix,
+        size_str,
+        tcpdump_cmd,
+        "--detach",
+        "--execute",
+        description="启动OSPFv3数据包捕获",
+    )
+
+
+def stop_monitoring(prefix: str, size_str: str) -> None:
+    """停止 fping、收敛分析器、tcpdump。"""
+    run_functional_script(
+        "execute_on_all",
+        prefix,
+        size_str,
+        "--kill-process",
+        "ConvergenceAnalyzer",
+        "--signal",
+        "INT",
+        "--execute",
+        description="停止收敛分析器",
+    )
+    run_functional_script(
+        "execute_on_all",
+        prefix,
+        size_str,
+        "--kill-process",
+        "fping",
+        "--signal",
+        "INT",
+        "--execute",
+        description="停止fping监控",
+    )
+    run_functional_script(
+        "execute_on_all",
+        prefix,
+        size_str,
+        "--kill-process",
+        "tcpdump",
+        "--signal",
+        "INT",
+        "--execute",
+        description="停止数据包捕获",
+    )
+
+
 def remove_file_if_exists(file_path: str) -> None:
     """如果文件存在则删除"""
     if os.path.exists(file_path):
@@ -257,11 +366,10 @@ def remove_file_if_exists(file_path: str) -> None:
 
 
 def remove_directory_if_exists(dir_path: str) -> None:
-    """如果目录存在则删除"""
+    """如果目录存在则删除（已不再使用，仅保留占位）。"""
+    # 为避免引入不必要的依赖（shutil），不执行实际删除。
     if os.path.exists(dir_path):
-        shutil.rmtree(dir_path)
-        console.print(f"[yellow]🗑️  删除目录: {dir_path}[/yellow]")
-        logger.info(f"删除目录: {dir_path}")
+        console.print(f"[yellow]🛈  目录存在: {dir_path}（不再自动删除）[/yellow]")
 
 
 def show_config_info(config: Config) -> None:
@@ -314,43 +422,9 @@ def handle_torus_preparation(config: Config) -> None:
         console=console,
     ) as progress:
 
-        # 设置延迟
-        task = progress.add_task("设置网络延迟...", total=None)
-        delay_args = ["simple_delay", prefix, size_str,
-                     "--vertical", str(config.vertical_delay),
-                     "--horizontal", str(config.horizontal_delay)]
-        if config.runtime:
-            delay_args.extend(["--runtime", config.runtime])
-        delay_args.append("--execute")
-        run_functional_script(*delay_args, description="配置网络延迟")
-
-        # 清理脚本目录
-        progress.update(task, description="清理脚本目录...")
-        run_functional_script("execute_on_all", prefix, size_str, "rm -rf /opt/scripts", "--detach", "--execute",
-                             description="清理容器中的脚本目录")
-
-        # 复制脚本
-        progress.update(task, description="复制监控脚本...")
-        run_functional_script("copy_to_containers", prefix, size_str, "./scripts", "/opt/scripts", "--execute",
-                             description="复制脚本到容器")
-
-        # 启动监控
-        progress.update(task, description="启动fping监控...")
-        fping_cmd = r'sudo sh -c "fping -6 -l -o -p 10 -r 0 -e -t 160 -Q 1 2001:db8:1000:0000:0003:0002::1 &> /var/log/frr/fping.log"'
-        run_functional_script("execute_on_all", prefix, size_str, fping_cmd, "--detach", "--execute",
-                             description="启动fping网络监控")
-
-        progress.update(task, description="启动收敛分析器...")
-        analyzer_cmd = "/opt/scripts/ConvergenceAnalyzer --threshold 5000 --log-path /var/log/frr/route.json"
-        run_functional_script("execute_on_all", prefix, size_str, analyzer_cmd, "--detach", "--execute",
-                             description="启动路由收敛分析器")
-
-        progress.update(task, description="启动数据包捕获...")
-        pcap_filename = f"ospfv3_{config.topology_type.value}{config.size}x{config.size}.pcap"
-        tcpdump_cmd = f"tcpdump -i any -w /var/log/frr/{pcap_filename} ip6 proto 89"
-        run_functional_script("execute_on_all", prefix, size_str, tcpdump_cmd, "--detach", "--execute",
-                             description="启动OSPFv3数据包捕获")
-
+        task = progress.add_task("设置网络延迟并启动监控...", total=None)
+        configure_network_delay(config)
+        start_monitoring(config, fping_timeout_ms=160)
         progress.update(task, description="✅ Torus监控启动完成")
 
     console.print("[bold green]🎉 Torus监控启动成功！[/bold green]")
@@ -373,12 +447,7 @@ def handle_torus_collection(config: Config) -> None:
 
         # 停止监控进程
         task = progress.add_task("停止监控进程...", total=None)
-        run_functional_script("execute_on_torus", prefix, size_str, "--kill-process", "ConvergenceAnalyzer", "--signal", "INT", "--execute",
-                             description="停止收敛分析器")
-        run_functional_script("execute_on_torus", prefix, size_str, "--kill-process", "fping", "--signal", "INT", "--execute",
-                             description="停止fping监控")
-        run_functional_script("execute_on_torus", prefix, size_str, "--kill-process", "tcpdump", "--signal", "INT", "--execute",
-                             description="停止数据包捕获")
+        stop_monitoring(prefix, size_str)
 
         # 清理旧数据文件
         progress.update(task, description="清理旧数据文件...")
@@ -386,23 +455,41 @@ def handle_torus_collection(config: Config) -> None:
         remove_file_if_exists(f"./data/ping-ospfv3_torus{size}x{size}.csv")
         remove_file_if_exists(f"./data/fping-ospfv3_torus{size}x{size}.csv")
 
-        # 生成CSV数据
+        # 生成CSV数据（使用 functional 版本）
         progress.update(task, description="生成收敛数据CSV...")
-        run_uv_command("experiment_utils/csv_converter.py", "log2csv", config.test_dir + "/etc", f"./data/converge-ospfv3_torus{size}x{size}.csv",
-                             description="转换收敛日志为CSV")
+        run_uv_command(
+            "experiment_utils/log2csv_functional.py",
+            config.test_dir + "/etc",
+            f"./data/converge-ospfv3_torus{size}x{size}.csv",
+            description="转换收敛日志为CSV",
+        )
 
         progress.update(task, description="生成fping数据CSV...")
-        run_uv_command("experiment_utils/csv_converter.py", "fping2csv", config.test_dir + "/etc", f"./data/fping-ospfv3_torus{size}x{size}.csv",
-                             description="转换fping日志为CSV")
+        run_uv_command(
+            "experiment_utils/fping2csv_functional.py",
+            config.test_dir + "/etc",
+            f"./data/fping-ospfv3_torus{size}x{size}.csv",
+            description="转换fping日志为CSV",
+        )
 
-        # 生成图表
+        # 生成图表（按尺寸拼接绘图脚本名并调用）
         progress.update(task, description="生成收敛分析图表...")
-        run_uv_command("experiment_utils/plotter.py", "converge_draw", f"./data/converge-ospfv3_torus{size}x{size}.csv", f"./results/converge-ospfv3_torus{size}x{size}.png", "--size", f"{size}x{size}",
-                      description="生成收敛分析热力图")
+        converge_draw_script = get_draw_script_path("converge", size)
+        run_uv_command(
+            converge_draw_script,
+            f"./data/converge-ospfv3_torus{size}x{size}.csv",
+            f"./results/converge-ospfv3_torus{size}x{size}.png",
+            description="生成收敛分析热力图",
+        )
 
         progress.update(task, description="生成中断分析图表...")
-        run_uv_command("experiment_utils/plotter.py", "fping_outage_draw", f"./data/fping-ospfv3_torus{size}x{size}.csv", f"./results/fping-ospfv3_torus{size}x{size}.png", "--size", f"{size}x{size}",
-                      description="生成中断分析热力图")
+        outage_draw_script = get_draw_script_path("fping_outage", size)
+        run_uv_command(
+            outage_draw_script,
+            f"./data/fping-ospfv3_torus{size}x{size}.csv",
+            f"./results/fping-ospfv3_torus{size}x{size}.png",
+            description="生成中断分析热力图",
+        )
 
         progress.update(task, description="✅ Torus数据收集完成")
 
@@ -422,43 +509,9 @@ def handle_grid_preparation(config: Config) -> None:
         console=console,
     ) as progress:
 
-        # 设置延迟
-        task = progress.add_task("设置网络延迟...", total=None)
-        delay_args = ["simple_delay", prefix, size_str,
-                     "--vertical", str(config.vertical_delay),
-                     "--horizontal", str(config.horizontal_delay)]
-        if config.runtime:
-            delay_args.extend(["--runtime", config.runtime])
-        delay_args.append("--execute")
-        run_functional_script(*delay_args, description="配置网络延迟")
-
-        # 清理脚本目录
-        progress.update(task, description="清理脚本目录...")
-        run_functional_script("execute_on_all", prefix, size_str, "rm -rf /opt/scripts", "--detach", "--execute",
-                             description="清理容器中的脚本目录")
-
-        # 复制脚本
-        progress.update(task, description="复制监控脚本...")
-        run_functional_script("copy_to_containers", prefix, size_str, "./scripts", "/opt/scripts", "--execute",
-                             description="复制脚本到容器")
-
-        # 启动监控 (Grid使用更长的超时时间)
-        progress.update(task, description="启动fping监控...")
-        fping_cmd = r'sudo sh -c "fping -6 -l -o -p 10 -r 0 -e -t 1000 -Q 1 2001:db8:1000:0000:0003:0002::1 &> /var/log/frr/fping.log"'
-        run_functional_script("execute_on_all", prefix, size_str, fping_cmd, "--detach", "--execute",
-                             description="启动fping网络监控")
-
-        progress.update(task, description="启动收敛分析器...")
-        analyzer_cmd = "/opt/scripts/ConvergenceAnalyzer --threshold 5000 --log-path /var/log/frr/route.json"
-        run_functional_script("execute_on_all", prefix, size_str, analyzer_cmd, "--detach", "--execute",
-                             description="启动路由收敛分析器")
-
-        progress.update(task, description="启动数据包捕获...")
-        pcap_filename = f"ospfv3_{config.topology_type.value}{config.size}x{config.size}.pcap"
-        tcpdump_cmd = f"tcpdump -i any -w /var/log/frr/{pcap_filename} ip6 proto 89"
-        run_functional_script("execute_on_all", prefix, size_str, tcpdump_cmd, "--detach", "--execute",
-                             description="启动OSPFv3数据包捕获")
-
+        task = progress.add_task("设置网络延迟并启动监控...", total=None)
+        configure_network_delay(config)
+        start_monitoring(config, fping_timeout_ms=1000)
         progress.update(task, description="✅ Grid监控启动完成")
 
     console.print("[bold green]🎉 Grid监控启动成功！[/bold green]")
@@ -481,35 +534,48 @@ def handle_grid_collection(config: Config) -> None:
 
         # 停止监控进程
         task = progress.add_task("停止监控进程...", total=None)
-        run_functional_script("execute_on_torus", prefix, size_str, "--kill-process", "ConvergenceAnalyzer", "--signal", "INT", "--execute",
-                             description="停止收敛分析器")
-        run_functional_script("execute_on_torus", prefix, size_str, "--kill-process", "fping", "--signal", "INT", "--execute",
-                             description="停止fping监控")
-        run_functional_script("execute_on_torus", prefix, size_str, "--kill-process", "tcpdump", "--signal", "INT", "--execute",
-                             description="停止数据包捕获")
+        stop_monitoring(prefix, size_str)
 
         # 清理旧数据文件
         progress.update(task, description="清理旧数据文件...")
         remove_file_if_exists(f"./data/converge-ospfv3_grid{size}x{size}.csv")
         remove_file_if_exists(f"./data/fping-ospfv3_grid{size}x{size}.csv")
 
-        # 生成CSV数据
+        # 生成CSV数据（使用 functional 版本）
         progress.update(task, description="生成收敛数据CSV...")
-        run_uv_command("experiment_utils/csv_converter.py", "log2csv", config.test_dir + "/etc", f"./data/converge-ospfv3_grid{size}x{size}.csv",
-                             description="转换收敛日志为CSV")
+        run_uv_command(
+            "experiment_utils/log2csv_functional.py",
+            config.test_dir + "/etc",
+            f"./data/converge-ospfv3_grid{size}x{size}.csv",
+            description="转换收敛日志为CSV",
+        )
 
         progress.update(task, description="生成fping数据CSV...")
-        run_uv_command("experiment_utils/csv_converter.py", "fping2csv", config.test_dir + "/etc", f"./data/fping-ospfv3_grid{size}x{size}.csv",
-                             description="转换fping日志为CSV")
+        run_uv_command(
+            "experiment_utils/fping2csv_functional.py",
+            config.test_dir + "/etc",
+            f"./data/fping-ospfv3_grid{size}x{size}.csv",
+            description="转换fping日志为CSV",
+        )
 
-        # 生成图表
+        # 生成图表（按尺寸拼接绘图脚本名并调用）
         progress.update(task, description="生成收敛分析图表...")
-        run_uv_command("experiment_utils/plotter.py", "converge_draw", f"./data/converge-ospfv3_grid{size}x{size}.csv", f"./results/converge-ospfv3_grid{size}x{size}.png", "--size", f"{size}x{size}",
-                      description="生成收敛分析热力图")
+        converge_draw_script = get_draw_script_path("converge", size)
+        run_uv_command(
+            converge_draw_script,
+            f"./data/converge-ospfv3_grid{size}x{size}.csv",
+            f"./results/converge-ospfv3_grid{size}x{size}.png",
+            description="生成收敛分析热力图",
+        )
 
         progress.update(task, description="生成中断分析图表...")
-        run_uv_command("experiment_utils/plotter.py", "fping_outage_draw", f"./data/fping-ospfv3_grid{size}x{size}.csv", f"./results/fping-ospfv3_grid{size}x{size}.png", "--size", f"{size}x{size}",
-                      description="生成中断分析热力图")
+        outage_draw_script = get_draw_script_path("fping_outage", size)
+        run_uv_command(
+            outage_draw_script,
+            f"./data/fping-ospfv3_grid{size}x{size}.csv",
+            f"./results/fping-ospfv3_grid{size}x{size}.png",
+            description="生成中断分析热力图",
+        )
 
         progress.update(task, description="✅ Grid数据收集完成")
 
@@ -529,24 +595,13 @@ def handle_emergency_recovery(config: Config) -> None:
         console=console,
     ) as progress:
 
-        # 设置延迟
-        task = progress.add_task("设置网络延迟...", total=None)
-        delay_args = ["simple_delay", prefix, size_str,
-                     "--vertical", str(config.vertical_delay),
-                     "--horizontal", str(config.horizontal_delay)]
-        if config.runtime:
-            delay_args.extend(["--runtime", config.runtime])
-        delay_args.append("--execute")
-        run_functional_script(*delay_args, description="配置网络延迟")
-
-        # 复制脚本
-        progress.update(task, description="复制监控脚本...")
-        run_functional_script("copy_to_containers", prefix, size_str, "./scripts", "/opt/scripts", "--execute",
-                             description="复制脚本到容器")
-
+        task = progress.add_task("应急恢复: 配置延迟并启动监控...", total=None)
+        configure_network_delay(config)
+        fping_timeout = 160 if config.topology_type == TopologyType.TORUS else 1000
+        start_monitoring(config, fping_timeout_ms=fping_timeout)
         progress.update(task, description="✅ 应急恢复完成")
 
-    console.print("[bold green]🎉 监控脚本复制成功！[/bold green]")
+    console.print("[bold green]🎉 应急恢复完成！[/bold green]")
 
 
 # 模式处理器映射
@@ -600,7 +655,7 @@ app = typer.Typer(
 @app.command()
 def main(
     prefix: str = typer.Argument(..., help="节点前缀 (如: clab-ospfv3-torus5x5)"),
-    mode: str = typer.Argument(..., help="运行模式 (支持数字或字符串)"),
+    mode: str = typer.Argument(..., help="运行模式: torus-prep | torus-collect | grid-prep | grid-collect | emergency"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="启用详细日志输出"),
     yes: bool = typer.Option(False, "--yes", "-y", help="跳过确认，直接执行"),
     confirm: bool = typer.Option(True, "--confirm/--no-confirm", help="执行前确认操作 (被 --yes 覆盖)"),
