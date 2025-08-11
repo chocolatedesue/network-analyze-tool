@@ -3,7 +3,8 @@ isis_*
 ospf*
 .cache
 build
-
+*.json
+*.pcap
 *.png
 
 
