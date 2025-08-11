@@ -18,7 +18,8 @@ interface lo
 interface {{ iface.name }}
  ipv6 address {{ iface.addr }}
  ipv6 router isis INSTANCE
- isis hello padding during-adjacency-formation
+ ! isis hello padding during-adjacency-formation
+ no isis hello padding
  isis network point-to-point
  isis hello-interval {{ isis_hello_interval }}
  isis hello-multiplier {{ isis_hello_multiplier }}
