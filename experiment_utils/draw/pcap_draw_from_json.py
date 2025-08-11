@@ -35,7 +35,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 import sys
-from typing import List, Tuple, Optional, Any, Dict
+from typing import List, Tuple, Optional, Any, Dict, Callable
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -79,6 +79,129 @@ class ProcessedData:
 app = typer.Typer(name="draw_from_json", help="Draw network traffic plots from JSON")
 
 
+# ------------------------------
+# Protocol filtering (JSON-based)
+# ------------------------------
+
+def _string_contains(value: Any, needle: str) -> bool:
+    try:
+        if value is None:
+            return False
+        return needle.lower() in str(value).lower()
+    except Exception:
+        return False
+
+
+def _get_layers_dict(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    if not isinstance(item, dict):
+        return None
+    layers = _get_nested(item, "_source", "layers")
+    if isinstance(layers, dict):
+        return layers
+    layers = _get_nested(item, "layers")
+    if isinstance(layers, dict):
+        return layers
+    return None
+
+
+def _get_frame_protocols(item: Dict[str, Any]) -> Optional[str]:
+    # e.g., "sll:ethertype:llc:osi:isis:isis.hello"
+    v = _get_nested(item, "_source", "layers", "frame", "frame.protocols")
+    if isinstance(v, str):
+        return v
+    v = _get_nested(item, "layers", "frame", "frame.protocols")
+    if isinstance(v, str):
+        return v
+    return None
+
+
+def json_item_is_isis(item: Dict[str, Any]) -> bool:
+    layers = _get_layers_dict(item)
+    if isinstance(layers, dict):
+        # Direct layer presence
+        if any(k.startswith("isis") for k in layers.keys()):
+            return True
+        # LLC hint (less strict): dsap=ssap=0xfe can be other things too, so use protocols string
+    protos = _get_frame_protocols(item)
+    if protos and _string_contains(protos, "isis"):
+        return True
+    return False
+
+
+def json_item_is_ospf(item: Dict[str, Any]) -> bool:
+    layers = _get_layers_dict(item)
+    if isinstance(layers, dict):
+        if "ospf" in layers or "ospfv3" in layers:
+            return True
+    protos = _get_frame_protocols(item)
+    if protos and _string_contains(protos, "ospf"):
+        return True
+    # IPv6 next header 89
+    try:
+        ipv6 = None
+        if isinstance(layers, dict):
+            ipv6 = layers.get("ipv6")
+        if isinstance(ipv6, dict):
+            nh = ipv6.get("ipv6.nxt")
+            if str(nh) == "89":
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def json_item_is_bgp(item: Dict[str, Any]) -> bool:
+    layers = _get_layers_dict(item)
+    if isinstance(layers, dict):
+        if "bgp" in layers:
+            return True
+        tcp = layers.get("tcp")
+        if isinstance(tcp, dict):
+            sp = tcp.get("tcp.srcport")
+            dp = tcp.get("tcp.dstport")
+            try:
+                if int(str(sp)) == 179 or int(str(dp)) == 179:
+                    return True
+            except Exception:
+                pass
+    protos = _get_frame_protocols(item)
+    if protos and _string_contains(protos, "bgp"):
+        return True
+    return False
+
+
+def json_item_accept_all(_: Dict[str, Any]) -> bool:
+    return True
+
+
+ProtocolFilter = Callable[[Dict[str, Any]], bool]
+
+PROTOCOL_REGISTRY: Dict[str, Tuple[str, ProtocolFilter, List[str]]] = {
+    # name: (display_name, filter_func, keywords)
+    "isis": ("IS-IS", json_item_is_isis, ["isis", "is-is"]),
+    "ospf6": ("OSPFv6", json_item_is_ospf, ["ospf6", "ospfv6", "ospfv3", "ospf"]),
+    "bgp": ("BGP", json_item_is_bgp, ["bgp", "bgp4"]),
+    "all": ("All", json_item_accept_all, ["all", "any"]),
+}
+
+
+def resolve_protocol_filter(name: Optional[str]) -> Tuple[str, ProtocolFilter]:
+    if not name:
+        return PROTOCOL_REGISTRY["isis"][0], PROTOCOL_REGISTRY["isis"][1]
+    normalized = name.strip().lower()
+    # Direct name hit
+    if normalized in PROTOCOL_REGISTRY:
+        disp, func, _ = PROTOCOL_REGISTRY[normalized]
+        return disp, func
+    # Keyword match
+    for key, (disp, func, keywords) in PROTOCOL_REGISTRY.items():
+        if normalized in keywords:
+            return disp, func
+    # Fallback to ISIS
+    disp, func, _ = PROTOCOL_REGISTRY["isis"]
+    return disp, func
+
+
 def _get_nested(d: Dict[str, Any], *keys: str) -> Any:
     cur: Any = d
     for k in keys:
@@ -117,7 +240,7 @@ def _coerce_int(value: Any) -> Optional[int]:
     return None
 
 
-def read_time_size_json(json_path: Path) -> List[Tuple[float, int]]:
+def read_time_size_json(json_path: Path, filter_func: Optional[ProtocolFilter] = None) -> List[Tuple[float, int]]:
     rows: List[Tuple[float, int]] = []
     with open(json_path, "r", encoding="utf-8") as f:
         try:
@@ -143,6 +266,16 @@ def read_time_size_json(json_path: Path) -> List[Tuple[float, int]]:
         raise ValueError("Unsupported JSON structure: expected list or dict")
 
     for item in items:
+        # Protocol filter before extracting values
+        try:
+            if filter_func is not None:
+                if not isinstance(item, dict):
+                    continue
+                if not filter_func(item):
+                    continue
+        except Exception:
+            # If filter raises unexpectedly, skip item
+            continue
         try:
             # Typical structure: item["_source"]["layers"]["frame"]["frame.time_epoch"], ["frame.len"]
             if isinstance(item, dict) and "_source" in item:
@@ -287,9 +420,17 @@ def draw(
     width: float = typer.Option(12.0, "--width", help="Figure width inches"),
     height: float = typer.Option(8.0, "--height", help="Figure height inches"),
     use_cap_len: bool = typer.Option(False, "--use-cap-len", help="Prefer frame.cap_len over frame.len"),
+    protocol: Optional[str] = typer.Option(
+        "isis",
+        "--protocol",
+        help="Protocol filter: isis | ospf6 | bgp | all (defaults to isis)",
+        case_sensitive=False,
+    ),
 ):
     try:
-        rows = read_time_size_json(json_path)
+        display_name, filter_func = resolve_protocol_filter(protocol)
+        log_info(f"Protocol filter: {display_name}")
+        rows = read_time_size_json(json_path, filter_func=filter_func)
         if not rows:
             raise ValueError("No valid packets found in JSON")
 
@@ -324,7 +465,7 @@ def draw(
 
         processed = process(rows)
         if not title:
-            title = "Network Traffic Analysis"
+            title = f"Network Traffic Analysis - {display_name}"
         cfg = PlotConfig(figure_size=(width, height), dpi=dpi)
         configure_plot_style(cfg)
         draw_plot(processed, title, cfg, output_path)
