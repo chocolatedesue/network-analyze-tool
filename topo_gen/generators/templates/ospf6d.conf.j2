@@ -10,11 +10,21 @@ log commands
 debug ospf6 neighbor state
 {% endif %}
 !
+! Loopback interface configuration
+{% if loopback_range %}
+interface lo
+ ipv6 ospf6 area {{ loopback_area_id }}
+ ipv6 ospf6 instance-id 0
+ ipv6 ospf6 passive
+!
+{% endif %}
+!
 {% for iface in interfaces %}
 interface {{ iface.name }}
  ipv6 ospf6 area {{ iface.area_id }}
-  ipv6 ospf6 p2p-p2mp connected-prefixes exclude
-  ipv6 ospf6 network point-to-point
+ ipv6 ospf6 instance-id 0
+ ipv6 ospf6 p2p-p2mp connected-prefixes exclude
+ ipv6 ospf6 network point-to-point
 {% if iface.hello_interval %}
  ipv6 ospf6 hello-interval {{ iface.hello_interval }}
 {% endif %}
@@ -48,7 +58,7 @@ router ospf6
  maximum-paths {{ router.maximum_paths }}
 {% endif %}
 {% if router.spf_delay %}
- timers throttle spf {{ router.spf_delay }} {{ router.spf_delay * 10 }} {{ router.spf_delay * 200 }}
+ timers throttle spf {{ router.spf_delay }} {{ (router.spf_delay + 20 ) * 10) }} {{ ( router.spf_delay + 20 ) * 200 }}
 {% endif %}
 !
 line vty

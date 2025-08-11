@@ -657,6 +657,9 @@ def handle_emergency_recovery(config: Config) -> None:
     console.print("[bold green]🎉 应急恢复完成！[/bold green]")
 
 
+# inject mode
+# uv run experiment_utils/inject.py clab-ospf6-torus5x5  --specific-link 3,2-4,2 --execute --type link
+
 # 模式处理器映射
 MODE_HANDLERS = {
     Mode.TORUS_PREPARATION: handle_torus_preparation,
