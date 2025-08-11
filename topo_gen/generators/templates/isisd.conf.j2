@@ -18,10 +18,11 @@ interface lo
 interface {{ iface.name }}
  ipv6 address {{ iface.addr }}
  ipv6 router isis INSTANCE
+ isis hello padding during-adjacency-formation
  isis network point-to-point
  isis hello-interval {{ isis_hello_interval }}
  isis hello-multiplier {{ isis_hello_multiplier }}
- isis metric {{ isis_metric }}
+ isis metric {{ iface.metric }}
  {% if enable_three_way_handshake %}
  isis three-way-handshake
  {% endif %}

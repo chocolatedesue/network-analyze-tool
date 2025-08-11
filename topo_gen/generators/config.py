@@ -147,7 +147,7 @@ def _build_isis_context(router_info: RouterInfo, config: TopologyConfig) -> Dict
     router_id = system_id_num
     loopback_ipv4 = f"10.0.{router_id}.{router_id}/32"
     
-    # 生成接口列表
+    # 生成接口列表 - 支持方向性metric
     iface_list = []
     interface_counter = 0
     for interface_name in sorted(router_info.interfaces.keys()):
@@ -160,10 +160,24 @@ def _build_isis_context(router_info: RouterInfo, config: TopologyConfig) -> Dict
         subnet_base = 10 * router_id + interface_counter
         ipv4_base = f"10.1.{subnet_base}.0/31"
         
+        # 根据接口方向确定metric值
+        direction = get_direction_for_interface(interface_name)
+        metric: int
+        if direction in (Direction.NORTH, Direction.SOUTH):
+            # 纵向（南北）
+            metric = isis_config.isis_vertical_metric
+        elif direction in (Direction.EAST, Direction.WEST):
+            # 横向（东西）
+            metric = isis_config.isis_horizontal_metric
+        else:
+            # 默认值
+            metric = isis_config.isis_metric
+        
         iface_list.append({
             "name": interface_name, 
             "addr": addr_with_prefix,
-            "ipv4_addr": ipv4_base
+            "ipv4_addr": ipv4_base,
+            "metric": metric
         })
         interface_counter += 1
     

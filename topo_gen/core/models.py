@@ -159,8 +159,10 @@ class ISISConfig(BaseConfig):
     csnp_interval: int = Field(default=10, ge=1, le=600, description="CSNP间隔(秒)")
     psnp_interval: int = Field(default=2, ge=1, le=120, description="PSNP间隔(秒)")
     
-    # 接口度量 (网格拓扑统一度量便于ECMP)
-    isis_metric: int = Field(default=10, ge=1, le=16777215, description="ISIS接口度量值")
+    # 接口度量 (网格拓扑支持方向性度量)
+    isis_metric: int = Field(default=10, ge=1, le=16777215, description="ISIS接口度量值 - 向后兼容字段")
+    isis_vertical_metric: int = Field(default=10, ge=1, le=16777215, description="ISIS纵向(南北)接口度量值")
+    isis_horizontal_metric: int = Field(default=20, ge=1, le=16777215, description="ISIS横向(东西)接口度量值")
     
     # 网格拓扑特性开关
     three_way_handshake: bool = Field(default=True, description="启用三路握手 - P2P链路稳定性")
