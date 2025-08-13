@@ -58,9 +58,8 @@ router ospf6
  maximum-paths {{ router.maximum_paths }}
 {% endif %}
 {% if router.spf_delay %}
- timers throttle spf {{ router.spf_delay }} {{ (router.spf_delay + 20 ) * 10) }} {{ ( router.spf_delay + 20 ) * 200 }}
+ timers throttle spf {{ router.spf_delay }} {{ (router.spf_delay + 20) * 10 }} {{ ( router.spf_delay + 20 ) * 200 }}
 {% endif %}
 !
 line vty
 !
-
