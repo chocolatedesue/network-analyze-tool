@@ -5,6 +5,19 @@ from typing import Optional, Set
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from .defaults import (
+    ENABLE_DEFAULT_OSPF6,
+    ENABLE_DEFAULT_ISIS,
+    ENABLE_DEFAULT_BGP,
+    ENABLE_DEFAULT_BFD,
+    OSPF_DEFAULT_HELLO_INTERVAL,
+    OSPF_DEFAULT_DEAD_INTERVAL,
+    OSPF_DEFAULT_SPF_DELAY_MS,
+    OSPF_DEFAULT_LSA_MIN_ARRIVAL_MS,
+    OSPF_DEFAULT_MAXIMUM_PATHS,
+    BGP_DEFAULT_ASN,
+    DISABLE_LOGGING_DEFAULT,
+)
 
 from ..core.types import TopologyType
 
@@ -31,20 +44,21 @@ class AppSettings(BaseSettings):
     area_size: Optional[int] = Field(default=None, ge=2)
 
     # 协议启用
-    enable_bgp: bool = Field(default=False)
-    enable_bfd: bool = Field(default=False)
-    enable_ospf6: bool = Field(default=True)
-    enable_isis: bool = Field(default=False)
+    enable_bgp: bool = Field(default=ENABLE_DEFAULT_BGP)
+    enable_bfd: bool = Field(default=ENABLE_DEFAULT_BFD)
+    enable_ospf6: bool = Field(default=ENABLE_DEFAULT_OSPF6)
+    enable_isis: bool = Field(default=ENABLE_DEFAULT_ISIS)
 
     # OSPF 参数
-    hello_interval: int = Field(default=2)
-    dead_interval: int = Field(default=10)
-    spf_delay: int = Field(default=50)
-    lsa_min_arrival: int = Field(default=1000)
-    maximum_paths: int = Field(default=64)
+    hello_interval: int = Field(default=OSPF_DEFAULT_HELLO_INTERVAL)
+    dead_interval: int = Field(default=OSPF_DEFAULT_DEAD_INTERVAL)
+    # 与 CLI 选项默认保持一致
+    spf_delay: int = Field(default=OSPF_DEFAULT_SPF_DELAY_MS)
+    lsa_min_arrival: int = Field(default=OSPF_DEFAULT_LSA_MIN_ARRIVAL_MS)
+    maximum_paths: int = Field(default=OSPF_DEFAULT_MAXIMUM_PATHS)
 
     # BGP 参数
-    bgp_as: int = Field(default=65000)
+    bgp_as: int = Field(default=BGP_DEFAULT_ASN)
 
     # 守护进程控制
     daemons_off: bool = Field(default=False)
@@ -53,12 +67,10 @@ class AppSettings(BaseSettings):
     isisd_off: bool = Field(default=False)
     bfdd_off: bool = Field(default=False)
     dummy_gen_protocols: Set[str] = Field(default_factory=set)
-    disable_logging: bool = Field(default=False)
+    disable_logging: bool = Field(default=DISABLE_LOGGING_DEFAULT)
 
     # 配置文件（若 CLI 未提供，可通过环境变量或 .env 中指向）
     config_file: Optional[Path] = Field(default=None, description="配置文件路径，可选")
 
 
 __all__ = ["AppSettings"]
-
-

@@ -18,6 +18,46 @@ from .types import (
     ValidationResult, Success, Failure
 )
 from pathlib import Path
+from ..config.defaults import (
+    OSPF_DEFAULT_HELLO_INTERVAL,
+    OSPF_DEFAULT_DEAD_INTERVAL,
+    OSPF_DEFAULT_SPF_DELAY_MS,
+    OSPF_DEFAULT_AREA_ID,
+    OSPF_DEFAULT_RETRANSMIT_INTERVAL,
+    OSPF_DEFAULT_TRANSMIT_DELAY,
+    OSPF_DEFAULT_LSA_MIN_ARRIVAL_MS,
+    OSPF_DEFAULT_MAXIMUM_PATHS,
+    ISIS_DEFAULT_AREA_ID,
+    ISIS_DEFAULT_LEVEL_TYPE,
+    ISIS_DEFAULT_METRIC_STYLE,
+    ISIS_DEFAULT_HELLO_INTERVAL,
+    ISIS_DEFAULT_HELLO_MULTIPLIER,
+    ISIS_DEFAULT_PRIORITY,
+    ISIS_DEFAULT_LSP_GEN_INTERVAL,
+    ISIS_DEFAULT_LSP_REFRESH_INTERVAL,
+    ISIS_DEFAULT_MAX_LSP_LIFETIME,
+    ISIS_DEFAULT_SPF_INTERVAL,
+    ISIS_DEFAULT_SPF_INIT_DELAY_MS,
+    ISIS_DEFAULT_SPF_SHORT_DELAY_MS,
+    ISIS_DEFAULT_SPF_LONG_DELAY_MS,
+    ISIS_DEFAULT_SPF_HOLDDOWN_MS,
+    ISIS_DEFAULT_SPF_TIME_TO_LEARN_MS,
+    ISIS_DEFAULT_CSNP_INTERVAL,
+    ISIS_DEFAULT_PSNP_INTERVAL,
+    ISIS_DEFAULT_METRIC,
+    ISIS_DEFAULT_VERTICAL_METRIC,
+    ISIS_DEFAULT_HORIZONTAL_METRIC,
+    ISIS_DEFAULT_THREE_WAY_HANDSHAKE,
+    ISIS_DEFAULT_ENABLE_WIDE_METRICS,
+    BFD_DEFAULT_ENABLED,
+    BFD_DEFAULT_DETECT_MULTIPLIER,
+    BFD_DEFAULT_INTERVAL_MS,
+    BFD_DEFAULT_PROFILE_NAME,
+    BFD_DEFAULT_ECHO_MODE,
+    BFD_DEFAULT_ECHO_INTERVAL_MS,
+    BFD_DEFAULT_PASSIVE_MODE,
+    BFD_DEFAULT_MIN_TTL,
+)
 
 class BaseConfig(BaseModel):
     """基础配置类"""
@@ -48,19 +88,21 @@ class NetworkConfig(BaseConfig):
 
 class OSPFConfig(BaseConfig):
     """OSPF配置 - 增强版"""
-    hello_interval: int = Field(default=2, ge=1, le=65535, description="Hello间隔(秒)")
-    dead_interval: int = Field(default=10, ge=1, le=65535, description="Dead间隔(秒)")
-    spf_delay: int = Field(default=50, ge=1, le=65535, description="SPF延迟(毫秒)")
-    area_id: AreaID = Field(default="0.0.0.0", description="区域ID")
+    hello_interval: int = Field(default=OSPF_DEFAULT_HELLO_INTERVAL, ge=1, le=65535, description="Hello间隔(秒)")
+    dead_interval: int = Field(default=OSPF_DEFAULT_DEAD_INTERVAL, ge=1, le=65535, description="Dead间隔(秒)")
+    # 与 CLI 默认保持一致: --spf-delay 默认 20ms
+    spf_delay: int = Field(default=OSPF_DEFAULT_SPF_DELAY_MS, ge=1, le=65535, description="SPF延迟(毫秒)")
+    area_id: AreaID = Field(default=OSPF_DEFAULT_AREA_ID, description="区域ID")
     cost: Optional[int] = Field(default=None, ge=1, le=65535, description="接口开销")
     priority: Optional[int] = Field(default=None, ge=0, le=255, description="路由器优先级")
 
     # 新增字段
-    retransmit_interval: int = Field(default=5, ge=1, le=3600, description="重传间隔(秒)")
-    transmit_delay: int = Field(default=1, ge=1, le=3600, description="传输延迟(秒)")
+    retransmit_interval: int = Field(default=OSPF_DEFAULT_RETRANSMIT_INTERVAL, ge=1, le=3600, description="重传间隔(秒)")
+    transmit_delay: int = Field(default=OSPF_DEFAULT_TRANSMIT_DELAY, ge=1, le=3600, description="传输延迟(秒)")
     authentication_type: Optional[str] = Field(default=None, description="认证类型")
-    lsa_min_arrival: int = Field(default=1000, ge=10, le=60000, description="LSA最小到达间隔(毫秒)")
-    maximum_paths: int = Field(default=64, ge=1, le=128, description="ECMP最大路径数")
+    lsa_min_arrival: int = Field(default=OSPF_DEFAULT_LSA_MIN_ARRIVAL_MS, ge=10, le=60000, description="LSA最小到达间隔(毫秒)")
+    # 与 CLI 默认保持一致: --maximum-paths 默认 1
+    maximum_paths: int = Field(default=OSPF_DEFAULT_MAXIMUM_PATHS, ge=1, le=128, description="ECMP最大路径数")
 
     @field_validator('dead_interval')
     @classmethod
@@ -132,41 +174,41 @@ class BGPConfig(BaseConfig):
 class ISISConfig(BaseConfig):
     """ISIS配置 - 支持仅IPv6单实例快速收敛网格拓扑"""
     net_address: str = Field(description="NET地址，格式: 49.AREA.SYSID.00")
-    area_id: str = Field(default="49.0001", description="Area ID")
+    area_id: str = Field(default=ISIS_DEFAULT_AREA_ID, description="Area ID")
     system_id: Optional[str] = Field(default=None, description="System ID，如果为None则自动生成")
-    level_type: str = Field(default="level-1", description="ISIS级别类型，网格拓扑推荐level-1")
-    metric_style: str = Field(default="wide", description="度量样式，支持wide模式")
+    level_type: str = Field(default=ISIS_DEFAULT_LEVEL_TYPE, description="ISIS级别类型，网格拓扑推荐level-1")
+    metric_style: str = Field(default=ISIS_DEFAULT_METRIC_STYLE, description="度量样式，支持wide模式")
     
     # 基础计时器参数 (网格拓扑快速收敛优化)
-    hello_interval: int = Field(default=1, ge=1, le=600, description="Hello间隔(秒) - 网格拓扑快速检测")
-    hello_multiplier: int = Field(default=5, ge=2, le=100, description="Hello倍数器 - 平衡快速检测与稳定性")
-    priority: int = Field(default=64, ge=0, le=127, description="DIS选举优先级")
+    hello_interval: int = Field(default=ISIS_DEFAULT_HELLO_INTERVAL, ge=1, le=600, description="Hello间隔(秒) - 网格拓扑快速检测")
+    hello_multiplier: int = Field(default=ISIS_DEFAULT_HELLO_MULTIPLIER, ge=2, le=100, description="Hello倍数器 - 平衡快速检测与稳定性")
+    priority: int = Field(default=ISIS_DEFAULT_PRIORITY, ge=0, le=127, description="DIS选举优先级")
     
     # LSP生成和刷新优化 (参考FRR文档取值范围)
-    lsp_gen_interval: int = Field(default=2, ge=1, le=120, description="LSP生成间隔(秒) - 快速收敛设置")
-    lsp_refresh_interval: int = Field(default=900, ge=1, le=65534, description="LSP刷新间隔(秒)")
-    max_lsp_lifetime: int = Field(default=1200, ge=350, le=65535, description="LSP最大生存时间(秒)")
+    lsp_gen_interval: int = Field(default=ISIS_DEFAULT_LSP_GEN_INTERVAL, ge=1, le=120, description="LSP生成间隔(秒) - 快速收敛设置")
+    lsp_refresh_interval: int = Field(default=ISIS_DEFAULT_LSP_REFRESH_INTERVAL, ge=1, le=65534, description="LSP刷新间隔(秒)")
+    max_lsp_lifetime: int = Field(default=ISIS_DEFAULT_MAX_LSP_LIFETIME, ge=350, le=65535, description="LSP最大生存时间(秒)")
     
     # SPF计算优化（默认使用 IETF 风格延迟控制）
-    spf_interval: int = Field(default=2, ge=1, le=120, description="SPF计算间隔(秒) - 兼容字段，不在模板默认使用")
-    spf_init_delay_ms: int = Field(default=50, ge=0, le=60000, description="SPF IETF 初始延迟(毫秒) - 快速初始响应")
-    spf_short_delay_ms: int = Field(default=200, ge=0, le=60000, description="SPF IETF 短延迟(毫秒) - 学习期间延迟")
-    spf_long_delay_ms: int = Field(default=5000, ge=0, le=60000, description="SPF IETF 长延迟(毫秒) - 防震荡延迟(5s)")
-    spf_holddown_ms: int = Field(default=800, ge=0, le=60000, description="SPF IETF 抑制(毫秒) - 批处理窗口")
-    spf_time_to_learn_ms: int = Field(default=5000, ge=0, le=60000, description="SPF IETF 学习时间(毫秒) - 决策窗口(5s)")
+    spf_interval: int = Field(default=ISIS_DEFAULT_SPF_INTERVAL, ge=1, le=120, description="SPF计算间隔(秒) - 兼容字段，不在模板默认使用")
+    spf_init_delay_ms: int = Field(default=ISIS_DEFAULT_SPF_INIT_DELAY_MS, ge=0, le=60000, description="SPF IETF 初始延迟(毫秒) - 快速初始响应")
+    spf_short_delay_ms: int = Field(default=ISIS_DEFAULT_SPF_SHORT_DELAY_MS, ge=0, le=60000, description="SPF IETF 短延迟(毫秒) - 学习期间延迟")
+    spf_long_delay_ms: int = Field(default=ISIS_DEFAULT_SPF_LONG_DELAY_MS, ge=0, le=60000, description="SPF IETF 长延迟(毫秒) - 防震荡延迟(5s)")
+    spf_holddown_ms: int = Field(default=ISIS_DEFAULT_SPF_HOLDDOWN_MS, ge=0, le=60000, description="SPF IETF 抑制(毫秒) - 批处理窗口")
+    spf_time_to_learn_ms: int = Field(default=ISIS_DEFAULT_SPF_TIME_TO_LEARN_MS, ge=0, le=60000, description="SPF IETF 学习时间(毫秒) - 决策窗口(5s)")
     
     # CSNP/PSNP间隔 (广播网络同步优化)
-    csnp_interval: int = Field(default=10, ge=1, le=600, description="CSNP间隔(秒)")
-    psnp_interval: int = Field(default=2, ge=1, le=120, description="PSNP间隔(秒)")
+    csnp_interval: int = Field(default=ISIS_DEFAULT_CSNP_INTERVAL, ge=1, le=600, description="CSNP间隔(秒)")
+    psnp_interval: int = Field(default=ISIS_DEFAULT_PSNP_INTERVAL, ge=1, le=120, description="PSNP间隔(秒)")
     
     # 接口度量 (网格拓扑支持方向性度量)
-    isis_metric: int = Field(default=10, ge=1, le=16777215, description="ISIS接口度量值 - 向后兼容字段")
-    isis_vertical_metric: int = Field(default=10, ge=1, le=16777215, description="ISIS纵向(南北)接口度量值")
-    isis_horizontal_metric: int = Field(default=20, ge=1, le=16777215, description="ISIS横向(东西)接口度量值")
+    isis_metric: int = Field(default=ISIS_DEFAULT_METRIC, ge=1, le=16777215, description="ISIS接口度量值 - 向后兼容字段")
+    isis_vertical_metric: int = Field(default=ISIS_DEFAULT_VERTICAL_METRIC, ge=1, le=16777215, description="ISIS纵向(南北)接口度量值")
+    isis_horizontal_metric: int = Field(default=ISIS_DEFAULT_HORIZONTAL_METRIC, ge=1, le=16777215, description="ISIS横向(东西)接口度量值")
     
     # 网格拓扑特性开关
-    three_way_handshake: bool = Field(default=True, description="启用三路握手 - P2P链路稳定性")
-    enable_wide_metrics: bool = Field(default=True, description="启用wide度量模式")
+    three_way_handshake: bool = Field(default=ISIS_DEFAULT_THREE_WAY_HANDSHAKE, description="启用三路握手 - P2P链路稳定性")
+    enable_wide_metrics: bool = Field(default=ISIS_DEFAULT_ENABLE_WIDE_METRICS, description="启用wide度量模式")
     
     # 认证配置已弃用（不使用）
     
@@ -223,17 +265,17 @@ class ISISConfig(BaseConfig):
 
 class BFDConfig(BaseConfig):
     """BFD配置 - 增强版"""
-    enabled: bool = Field(default=False, description="是否启用BFD")
-    detect_multiplier: int = Field(default=3, ge=1, le=255, description="检测倍数")
-    receive_interval: int = Field(default=300, ge=10, le=60000, description="接收间隔(毫秒)")
-    transmit_interval: int = Field(default=300, ge=10, le=60000, description="发送间隔(毫秒)")
-    profile_name: str = Field(default="default", description="配置文件名")
+    enabled: bool = Field(default=BFD_DEFAULT_ENABLED, description="是否启用BFD")
+    detect_multiplier: int = Field(default=BFD_DEFAULT_DETECT_MULTIPLIER, ge=1, le=255, description="检测倍数")
+    receive_interval: int = Field(default=BFD_DEFAULT_INTERVAL_MS, ge=10, le=60000, description="接收间隔(毫秒)")
+    transmit_interval: int = Field(default=BFD_DEFAULT_INTERVAL_MS, ge=10, le=60000, description="发送间隔(毫秒)")
+    profile_name: str = Field(default=BFD_DEFAULT_PROFILE_NAME, description="配置文件名")
 
     # 新增字段
-    echo_mode: bool = Field(default=False, description="是否启用回显模式")
-    echo_interval: int = Field(default=50, ge=10, le=60000, description="回显间隔(毫秒)")
-    passive_mode: bool = Field(default=False, description="是否为被动模式")
-    minimum_ttl: int = Field(default=1, ge=1, le=255, description="最小TTL值")
+    echo_mode: bool = Field(default=BFD_DEFAULT_ECHO_MODE, description="是否启用回显模式")
+    echo_interval: int = Field(default=BFD_DEFAULT_ECHO_INTERVAL_MS, ge=10, le=60000, description="回显间隔(毫秒)")
+    passive_mode: bool = Field(default=BFD_DEFAULT_PASSIVE_MODE, description="是否为被动模式")
+    minimum_ttl: int = Field(default=BFD_DEFAULT_MIN_TTL, ge=1, le=255, description="最小TTL值")
 
     @computed_field
     @property
