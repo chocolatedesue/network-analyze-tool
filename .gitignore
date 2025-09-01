@@ -6,6 +6,7 @@ build
 *.json
 *.pcap
 *.png
+conf
 
 
 converge_analyze/converge_analyze

@@ -3,7 +3,9 @@ import anyio
 import os
 import typer
 from loguru import logger
+from pathlib import Path
 from config import API_KEY, BASE_URL, NETWORK_NAME, NETWORK_PARAMS
+from confgen import GenParams, generate_all
 
 app = typer.Typer()
 
@@ -131,6 +133,18 @@ async def list_networks():
             logger.info(f"网络ID: {net['network_id']}, 状态: {net['network_status']}, 名称: {net['network_name']}")
     else:
         logger.info("没有网络")
+
+@app.command()
+def gen_conf(
+    m: int = typer.Argument(..., help="轨道数 m"),
+    n: int = typer.Argument(..., help="每条轨道的卫星数 n"),
+    out_dir: Path = typer.Option(Path("conf"), "--out-dir", help="输出目录"),
+    zip_name: str = typer.Option("3_prefix_conf.zip", "--zip-name", help="Zip 文件名"),
+):
+    """生成卫星 FRR 配置并打包。"""
+    params = GenParams(m=m, n=n, out_dir=out_dir, zip_name=zip_name)
+    zip_path = generate_all(params)
+    logger.info(f"配置生成完成: {zip_path}")
 
 @app.command()
 def create():

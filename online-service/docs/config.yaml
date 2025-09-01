@@ -1,0 +1,582 @@
+templates:
+  sat_tmpl:
+    node_type: sat
+    image: library/frrouting/frr:v8.4.0
+    start_commands:
+    - chown -R frr:frr /var/log/frr
+    - /usr/lib/frr/frrinit.sh start
+    stop_commands:
+    - /usr/lib/frr/frrinit.sh stop
+    volumes:
+    - frr_conf:/etc/frr
+    - frr_log:/var/log/frr
+    fixed_vNICs:
+      eth0: {}
+      eth1: {}
+      eth2: {}
+      eth3: {}
+      eth4: {}
+    resources:
+      cpu_score: 1691
+      memory: 4GB
+  gs_tmpl:
+    node_type: gs
+    image: library/frrouting/frr:v8.4.0
+    start_commands:
+    - chown -R frr:frr /var/log/frr
+    - /usr/lib/frr/frrinit.sh start
+    stop_commands:
+    - /usr/lib/frr/frrinit.sh stop
+    volumes:
+    - frr_conf:/etc/frr
+    - frr_log:/var/log/frr
+fixed_nodes:
+  Sat0:
+    template: sat_tmpl
+    sat_id: 0
+  Sat1:
+    template: sat_tmpl
+    sat_id: 1
+  Sat2:
+    template: sat_tmpl
+    sat_id: 2
+  Sat3:
+    template: sat_tmpl
+    sat_id: 3
+  Sat4:
+    template: sat_tmpl
+    sat_id: 4
+  Sat5:
+    template: sat_tmpl
+    sat_id: 5
+  Sat6:
+    template: sat_tmpl
+    sat_id: 6
+  Sat7:
+    template: sat_tmpl
+    sat_id: 7
+  Sat8:
+    template: sat_tmpl
+    sat_id: 8
+  Sat9:
+    template: sat_tmpl
+    sat_id: 9
+  Sat10:
+    template: sat_tmpl
+    sat_id: 10
+  Sat11:
+    template: sat_tmpl
+    sat_id: 11
+  Sat12:
+    template: sat_tmpl
+    sat_id: 12
+  Sat13:
+    template: sat_tmpl
+    sat_id: 13
+  Sat14:
+    template: sat_tmpl
+    sat_id: 14
+  Sat15:
+    template: sat_tmpl
+    sat_id: 15
+  Sat16:
+    template: sat_tmpl
+    sat_id: 16
+  Sat17:
+    template: sat_tmpl
+    sat_id: 17
+  Sat18:
+    template: sat_tmpl
+    sat_id: 18
+  Sat19:
+    template: sat_tmpl
+    sat_id: 19
+  Sat20:
+    template: sat_tmpl
+    sat_id: 20
+  Sat21:
+    template: sat_tmpl
+    sat_id: 21
+  Sat22:
+    template: sat_tmpl
+    sat_id: 22
+  Sat23:
+    template: sat_tmpl
+    sat_id: 23
+  Sat24:
+    template: sat_tmpl
+    sat_id: 24
+  Sat25:
+    template: sat_tmpl
+    sat_id: 25
+  Sat26:
+    template: sat_tmpl
+    sat_id: 26
+  Sat27:
+    template: sat_tmpl
+    sat_id: 27
+  Sat28:
+    template: sat_tmpl
+    sat_id: 28
+  Sat29:
+    template: sat_tmpl
+    sat_id: 29
+  Sat30:
+    template: sat_tmpl
+    sat_id: 30
+  Sat31:
+    template: sat_tmpl
+    sat_id: 31
+  Sat32:
+    template: sat_tmpl
+    sat_id: 32
+  Sat33:
+    template: sat_tmpl
+    sat_id: 33
+  Sat34:
+    template: sat_tmpl
+    sat_id: 34
+  Sat35:
+    template: sat_tmpl
+    sat_id: 35
+  Sat36:
+    template: sat_tmpl
+    sat_id: 36
+  Sat37:
+    template: sat_tmpl
+    sat_id: 37
+  Sat38:
+    template: sat_tmpl
+    sat_id: 38
+  Sat39:
+    template: sat_tmpl
+    sat_id: 39
+  Sat40:
+    template: sat_tmpl
+    sat_id: 40
+  Sat41:
+    template: sat_tmpl
+    sat_id: 41
+  Sat42:
+    template: sat_tmpl
+    sat_id: 42
+  Sat43:
+    template: sat_tmpl
+    sat_id: 43
+  Sat44:
+    template: sat_tmpl
+    sat_id: 44
+  Sat45:
+    template: sat_tmpl
+    sat_id: 45
+  Sat46:
+    template: sat_tmpl
+    sat_id: 46
+  Sat47:
+    template: sat_tmpl
+    sat_id: 47
+  Sat48:
+    template: sat_tmpl
+    sat_id: 48
+  Sat49:
+    template: sat_tmpl
+    sat_id: 49
+  Sat50:
+    template: sat_tmpl
+    sat_id: 50
+  Sat51:
+    template: sat_tmpl
+    sat_id: 51
+  Sat52:
+    template: sat_tmpl
+    sat_id: 52
+  Sat53:
+    template: sat_tmpl
+    sat_id: 53
+  Sat54:
+    template: sat_tmpl
+    sat_id: 54
+  Sat55:
+    template: sat_tmpl
+    sat_id: 55
+  Sat56:
+    template: sat_tmpl
+    sat_id: 56
+  Sat57:
+    template: sat_tmpl
+    sat_id: 57
+  Sat58:
+    template: sat_tmpl
+    sat_id: 58
+  Sat59:
+    template: sat_tmpl
+    sat_id: 59
+  Sat60:
+    template: sat_tmpl
+    sat_id: 60
+  Sat61:
+    template: sat_tmpl
+    sat_id: 61
+  Sat62:
+    template: sat_tmpl
+    sat_id: 62
+  Sat63:
+    template: sat_tmpl
+    sat_id: 63
+  Sat64:
+    template: sat_tmpl
+    sat_id: 64
+  Sat65:
+    template: sat_tmpl
+    sat_id: 65
+  Sat66:
+    template: sat_tmpl
+    sat_id: 66
+  Sat67:
+    template: sat_tmpl
+    sat_id: 67
+  Sat68:
+    template: sat_tmpl
+    sat_id: 68
+  Sat69:
+    template: sat_tmpl
+    sat_id: 69
+  Sat70:
+    template: sat_tmpl
+    sat_id: 70
+  Sat71:
+    template: sat_tmpl
+    sat_id: 71
+  Sat72:
+    template: sat_tmpl
+    sat_id: 72
+  Sat73:
+    template: sat_tmpl
+    sat_id: 73
+  Sat74:
+    template: sat_tmpl
+    sat_id: 74
+  Sat75:
+    template: sat_tmpl
+    sat_id: 75
+  Sat76:
+    template: sat_tmpl
+    sat_id: 76
+  Sat77:
+    template: sat_tmpl
+    sat_id: 77
+  Sat78:
+    template: sat_tmpl
+    sat_id: 78
+  Sat79:
+    template: sat_tmpl
+    sat_id: 79
+  Sat80:
+    template: sat_tmpl
+    sat_id: 80
+  Sat81:
+    template: sat_tmpl
+    sat_id: 81
+  Sat82:
+    template: sat_tmpl
+    sat_id: 82
+  Sat83:
+    template: sat_tmpl
+    sat_id: 83
+  Sat84:
+    template: sat_tmpl
+    sat_id: 84
+  Sat85:
+    template: sat_tmpl
+    sat_id: 85
+  Sat86:
+    template: sat_tmpl
+    sat_id: 86
+  Sat87:
+    template: sat_tmpl
+    sat_id: 87
+  Sat88:
+    template: sat_tmpl
+    sat_id: 88
+  Sat89:
+    template: sat_tmpl
+    sat_id: 89
+  Sat90:
+    template: sat_tmpl
+    sat_id: 90
+  Sat91:
+    template: sat_tmpl
+    sat_id: 91
+  Sat92:
+    template: sat_tmpl
+    sat_id: 92
+  Sat93:
+    template: sat_tmpl
+    sat_id: 93
+  Sat94:
+    template: sat_tmpl
+    sat_id: 94
+  Sat95:
+    template: sat_tmpl
+    sat_id: 95
+  Sat96:
+    template: sat_tmpl
+    sat_id: 96
+  Sat97:
+    template: sat_tmpl
+    sat_id: 97
+  Sat98:
+    template: sat_tmpl
+    sat_id: 98
+  Sat99:
+    template: sat_tmpl
+    sat_id: 99
+  Sat100:
+    template: sat_tmpl
+    sat_id: 100
+  Sat101:
+    template: sat_tmpl
+    sat_id: 101
+  Sat102:
+    template: sat_tmpl
+    sat_id: 102
+  Sat103:
+    template: sat_tmpl
+    sat_id: 103
+  Sat104:
+    template: sat_tmpl
+    sat_id: 104
+  Sat105:
+    template: sat_tmpl
+    sat_id: 105
+  Sat106:
+    template: sat_tmpl
+    sat_id: 106
+  Sat107:
+    template: sat_tmpl
+    sat_id: 107
+  Sat108:
+    template: sat_tmpl
+    sat_id: 108
+  Sat109:
+    template: sat_tmpl
+    sat_id: 109
+  Sat110:
+    template: sat_tmpl
+    sat_id: 110
+  Sat111:
+    template: sat_tmpl
+    sat_id: 111
+  Sat112:
+    template: sat_tmpl
+    sat_id: 112
+  Sat113:
+    template: sat_tmpl
+    sat_id: 113
+  Sat114:
+    template: sat_tmpl
+    sat_id: 114
+  Sat115:
+    template: sat_tmpl
+    sat_id: 115
+  Sat116:
+    template: sat_tmpl
+    sat_id: 116
+  Sat117:
+    template: sat_tmpl
+    sat_id: 117
+  Sat118:
+    template: sat_tmpl
+    sat_id: 118
+  Sat119:
+    template: sat_tmpl
+    sat_id: 119
+  Sat120:
+    template: sat_tmpl
+    sat_id: 120
+  Sat121:
+    template: sat_tmpl
+    sat_id: 121
+  Sat122:
+    template: sat_tmpl
+    sat_id: 122
+  Sat123:
+    template: sat_tmpl
+    sat_id: 123
+  Sat124:
+    template: sat_tmpl
+    sat_id: 124
+  Sat125:
+    template: sat_tmpl
+    sat_id: 125
+  Sat126:
+    template: sat_tmpl
+    sat_id: 126
+  Sat127:
+    template: sat_tmpl
+    sat_id: 127
+  Sat128:
+    template: sat_tmpl
+    sat_id: 128
+  Sat129:
+    template: sat_tmpl
+    sat_id: 129
+  Sat130:
+    template: sat_tmpl
+    sat_id: 130
+  Sat131:
+    template: sat_tmpl
+    sat_id: 131
+  Sat132:
+    template: sat_tmpl
+    sat_id: 132
+  Sat133:
+    template: sat_tmpl
+    sat_id: 133
+  Sat134:
+    template: sat_tmpl
+    sat_id: 134
+  Sat135:
+    template: sat_tmpl
+    sat_id: 135
+  Sat136:
+    template: sat_tmpl
+    sat_id: 136
+  Sat137:
+    template: sat_tmpl
+    sat_id: 137
+  Sat138:
+    template: sat_tmpl
+    sat_id: 138
+  Sat139:
+    template: sat_tmpl
+    sat_id: 139
+  Sat140:
+    template: sat_tmpl
+    sat_id: 140
+  Sat141:
+    template: sat_tmpl
+    sat_id: 141
+  Sat142:
+    template: sat_tmpl
+    sat_id: 142
+  Sat143:
+    template: sat_tmpl
+    sat_id: 143
+  Sat144:
+    template: sat_tmpl
+    sat_id: 144
+  Sat145:
+    template: sat_tmpl
+    sat_id: 145
+  Sat146:
+    template: sat_tmpl
+    sat_id: 146
+  Sat147:
+    template: sat_tmpl
+    sat_id: 147
+  Sat148:
+    template: sat_tmpl
+    sat_id: 148
+  Sat149:
+    template: sat_tmpl
+    sat_id: 149
+  Sat150:
+    template: sat_tmpl
+    sat_id: 150
+  Sat151:
+    template: sat_tmpl
+    sat_id: 151
+  Sat152:
+    template: sat_tmpl
+    sat_id: 152
+  Sat153:
+    template: sat_tmpl
+    sat_id: 153
+  Sat154:
+    template: sat_tmpl
+    sat_id: 154
+  Sat155:
+    template: sat_tmpl
+    sat_id: 155
+  Sat156:
+    template: sat_tmpl
+    sat_id: 156
+  Sat157:
+    template: sat_tmpl
+    sat_id: 157
+  Sat158:
+    template: sat_tmpl
+    sat_id: 158
+  Sat159:
+    template: sat_tmpl
+    sat_id: 159
+  Sat160:
+    template: sat_tmpl
+    sat_id: 160
+  Sat161:
+    template: sat_tmpl
+    sat_id: 161
+  Sat162:
+    template: sat_tmpl
+    sat_id: 162
+  Sat163:
+    template: sat_tmpl
+    sat_id: 163
+  Sat164:
+    template: sat_tmpl
+    sat_id: 164
+  Sat165:
+    template: sat_tmpl
+    sat_id: 165
+  Sat166:
+    template: sat_tmpl
+    sat_id: 166
+  Sat167:
+    template: sat_tmpl
+    sat_id: 167
+  Sat168:
+    template: sat_tmpl
+    sat_id: 168
+  Sat169:
+    template: sat_tmpl
+    sat_id: 169
+  Sat170:
+    template: sat_tmpl
+    sat_id: 170
+  Sat171:
+    template: sat_tmpl
+    sat_id: 171
+  Sat172:
+    template: sat_tmpl
+    sat_id: 172
+  Sat173:
+    template: sat_tmpl
+    sat_id: 173
+  Sat174:
+    template: sat_tmpl
+    sat_id: 174
+  Sat175:
+    template: sat_tmpl
+    sat_id: 175
+  Sat176:
+    template: sat_tmpl
+    sat_id: 176
+  Sat177:
+    template: sat_tmpl
+    sat_id: 177
+  Sat178:
+    template: sat_tmpl
+    sat_id: 178
+  Sat179:
+    template: sat_tmpl
+    sat_id: 179
+  gs_0:
+    template: gs_tmpl
+    gs_id: 0
+    fixed_vNICs:
+      eth0: {}
+links:
+  engines:
+  - walker_delta
+  veth_pairs: []
